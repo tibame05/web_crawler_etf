@@ -1,9 +1,9 @@
 # main.py
 import os
 import pandas as pd
-from crawler.tasks_etf_list import scrape_etf_list         # ✅ 匯入爬 ETF 清單的函式
-from crawler.tasks_crawler_etf import crawler_etf_data
-from crawler.tasks_backtest_utils import calculate_indicators, evaluate_performance      # ✅ 匯入技術指標與績效分析
+from crawler.tasks_etf_list_tw import scrape_etf_list         # ✅ 匯入爬 ETF 清單的函式
+from crawler.tasks_crawler_etf_tw import crawler_etf_data
+from crawler.tasks_backtest_utils_tw import calculate_indicators, evaluate_performance      # ✅ 匯入技術指標與績效分析
 
 
 if __name__ == "__main__":
