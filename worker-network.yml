@@ -1,0 +1,20 @@
+version: '3.0'  # 使用 Docker Compose 的版本 3.0，適合大部分部署場景
+
+services:
+  crawler_worker:  # 定義一個服務，名稱為 crawler_twse
+    image: winston07291/web_crawler_tw:${DOCKER_IMAGE_VERSION}  # 使用的映像檔名稱與標籤（版本）
+    hostname: "crawler_worker"  # 設定 hostname
+    command: pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h 
+    # 啟動容器後執行的命令，這裡是啟動 Celery worker，指定 app 為 crawler.worker，設定日誌等級為 info，
+    # 使用主機名稱當作 worker 名稱（%h），並將此 worker 加入名為 "tpex" 的任務佇列 (queue)
+
+    restart: always  # 若容器停止或崩潰，自動重新啟動
+    environment:
+      - TZ=Asia/Taipei  # 設定時區為台北（UTC+8）
+    networks:
+      - etf_lib_network  # 將此服務連接到 etf_lib_network 網路
+
+networks:
+  etf_lib_network:
+    # 加入已經存在的網路
+    external: true

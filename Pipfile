@@ -1,0 +1,24 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+flask = "==2.3.3"
+crawler = {editable = true, path = "."}
+setuptools = "*"
+pandas = "*"
+yfinance = "==0.2.63"
+mplfinance = "==0.12.9b7"
+pandas_ta = "*"
+celery = "==5.5.0"
+apscheduler = "==3.10.4"
+loguru = "==0.6.0"
+finmind = "*"
+sqlalchemy = "==1.4.54"
+pymysql = "==1.1.1"
+
+[dev-packages]
+
+[requires]
+python_version = "3.8"
