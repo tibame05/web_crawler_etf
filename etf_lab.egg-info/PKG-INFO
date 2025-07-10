@@ -1,0 +1,10 @@
+Metadata-Version: 2.1
+Name: etf-lab
+Version: 0.0.1
+Summary: ETF lab crawler and database
+Author: joycehsu, winstonlu
+Author-email: egroup.joyce@gmail.com, apollo07291@gmail.com
+Classifier: Development Status :: 3 - Alpha
+Description-Content-Type: text/markdown
+
+# web_crawler_etf

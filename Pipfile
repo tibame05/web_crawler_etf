@@ -17,6 +17,7 @@ loguru = "==0.6.0"
 finmind = "*"
 sqlalchemy = "==1.4.54"
 pymysql = "==1.1.1"
+etf-lab = {editable = true, path = "."}
 
 [dev-packages]
 
