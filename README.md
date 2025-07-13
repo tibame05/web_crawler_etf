@@ -244,7 +244,13 @@ docker rmi joycehsu65/web_crawler_tw:0.0.1
 docker network create etf_lib_network
 ```
 
-### ⚙️ 2. 設定 `.env` 環境變數（僅需一次）
+### 2. 建立 MySQL 的 Volume（僅需一次）
+
+```bash
+docker volume create mysql
+```
+
+### ⚙️ 3. 設定 `.env` 環境變數（僅需一次）
 
 若尚未建立 `.env` 檔案，可執行下列指令產生：
 
@@ -258,7 +264,13 @@ ENV=DOCKER python3 genenv.py
 RABBITMQ_HOST=127.0.0.1
 ```
 
-### 🐰 3. 啟動 RabbitMQ（Docker Compose）
+### 4. 啟動 MySQL（Docker Compose）
+
+```bash
+DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
+```
+
+### 🐰 5. 啟動 RabbitMQ（Docker Compose）
 
 ```bash
 docker compose -f rabbitmq-network.yml up -d
@@ -268,7 +280,7 @@ docker compose -f rabbitmq-network.yml up -d
 - 管理介面網址：[http://127.0.0.1:15672](http://127.0.0.1:15672/)
 - 預設帳號密碼可於 `rabbitmq-network.yml` 中設定（通常為 `worker / worker`）
 
-### 🔍 4. 檢查與除錯容器
+### 🔍 6. 檢查與除錯容器
 
 查看目前正在運行的 container：
 
@@ -285,18 +297,7 @@ docker logs web-crawler-rabbitmq-1
 > 📝 若 container 名稱不同，可用 docker ps 確認正確名稱。
 > 
 
-### 🚀 5. 發送任務（Producer）
-
-執行 `producer_main.py`，將任務加入 RabbitMQ 佇列：
-
-```bash
-pipenv run python crawler/producer_main.py
-```
-
-> 任務將預設加入名為 celery 的佇列。
-> 
-
-### 🛠️ 6. 啟動工人（Worker）
+### 🛠️ 7. 啟動工人（Worker）
 
 啟動 Celery 工人來執行佇列任務：
 
@@ -307,12 +308,7 @@ pipenv run celery -A crawler.worker worker --loglevel=info
 - `A crawler.worker`：指定 Celery app 的模組位置
 - `-loglevel=info`：顯示詳細任務處理紀錄
 
-### 🖥️ 7. Flower：監控任務狀態（Web UI）
-
-Flower 提供 Celery 任務的監控介面，可透過瀏覽器查看：
-[http://127.0.0.1:5555](http://127.0.0.1:5555/)
-
-### 👷‍♀️ 8. 啟動多個工人（多進程任務處理）
+### 👷‍♀️ 7.1. 啟動多個工人（多進程任務處理）
 
 你可以同時啟動多個工人，提高任務處理效率：
 
@@ -323,12 +319,110 @@ pipenv run celery -A crawler.worker worker -n worker2 --loglevel=info
 
 - `n worker1`：指定工人名稱，便於管理
 
-### 🛑 9. 關閉工人（Worker）
+### 🚀 8. 發送任務（Producer）
+
+執行 `producer_main.py`，將任務加入 RabbitMQ 佇列：
+
+```bash
+pipenv run python crawler/producer_main.py
+```
+
+> 任務將預設加入名為 celery 的佇列。
+> 
+
+### 🖥️ 9. Flower：監控任務狀態（Web UI）
+
+Flower 提供 Celery 任務的監控介面，可透過瀏覽器查看：
+[http://127.0.0.1:5555](http://127.0.0.1:5555/)
+
+
+### 🛑 10. 關閉工人（Worker）
 
 在 terminal 中啟動的工人，可透過 `Ctrl + C` 中斷停止。
 
-### ❌ 10. 關閉 RabbitMQ
+### ❌ 11. 關閉 RabbitMQ
 
 ```bash
 docker compose -f rabbitmq-network.yml down
 ```
+
+## 📁 資料表總覽
+
+| 資料表名稱 | 說明 |
+|------------|------|
+| `etfs` | ETF 主檔，包含 ETF 代碼、名稱、所屬地區與幣別 |
+| `etf_daily_prices` | 每日價格與技術指標（每一 ETF 每日一筆） |
+| `etf_backtest_results` | 每檔 ETF 的回測結果紀錄 |
+| `etf_dividend` | ETF 的歷史配息資料 |
+
+---
+
+## 📘 `etfs` — ETF 基本資料表
+
+| 欄位名稱 | 資料型別 | 說明 |
+|----------|-----------|------|
+| `etf_id` | `VARCHAR(20)` | 主鍵。ETF 代碼（如 `0050.TW`, `VOO`） |
+| `etf_name` | `VARCHAR(100)` | ETF 名稱 |
+| `region` | `VARCHAR(10)` | 所屬地區（如 `TW`, `US`） |
+| `currency` | `VARCHAR(10)` | 幣別（如 `TWD`, `USD`） |
+
+---
+
+## 📗 `etf_daily_prices` — ETF 每日價格與技術指標表
+
+| 欄位名稱 | 資料型別 | 說明 |
+|----------|-----------|------|
+| `etf_id` | `VARCHAR(20)` | 主鍵之一，外鍵對應 `etfs.etf_id` |
+| `date` | `DATE` | 主鍵之一，價格所屬日期 |
+| `adj_close` | `DECIMAL(10,4)` | 調整後收盤價 |
+| `close` | `DECIMAL(10,4)` | 原始收盤價 |
+| `high` | `DECIMAL(10,4)` | 當日最高價 |
+| `low` | `DECIMAL(10,4)` | 當日最低價 |
+| `open` | `DECIMAL(10,4)` | 開盤價 |
+| `volume` | `BIGINT` | 當日成交量 |
+| `rsi` | `FLOAT` | RSI 技術指標 |
+| `ma5` | `FLOAT` | 5 日移動平均 |
+| `ma20` | `FLOAT` | 20 日移動平均 |
+| `macd_line` | `FLOAT` | MACD 主線（12 EMA - 26 EMA） |
+| `macd_signal` | `FLOAT` | MACD 訊號線（MACD 之 9 EMA） |
+| `macd_hist` | `FLOAT` | MACD 柱狀圖 |
+| `pct_k` | `FLOAT` | KD 指標 %K |
+| `pct_d` | `FLOAT` | KD 指標 %D |
+| `daily_return` | `DECIMAL(8,6)` | 當日報酬率 |
+| `cumulative_return` | `DECIMAL(10,6)` | 累積報酬指數（通常以 1 為基準） |
+
+---
+
+## 📙 `etf_backtest_results` — ETF 回測結果表
+
+| 欄位名稱 | 資料型別 | 說明 |
+|----------|-----------|------|
+| `etf_id` | `VARCHAR(20)` | 主鍵，外鍵對應 `etfs.etf_id` |
+| `backtest_start` | `DATE` | 回測起始日期 |
+| `backtest_end` | `DATE` | 回測結束日期 |
+| `total_return` | `DECIMAL(8,6)` | 總報酬率 |
+| `cagr` | `DECIMAL(8,6)` | 年化報酬率 |
+| `max_drawdown` | `DECIMAL(8,6)` | 最大回撤 |
+| `sharpe_ratio` | `DECIMAL(8,6)` | 夏普比率（報酬 / 波動） |
+
+
+---
+
+## 🟧 `etf_dividend` — ETF 配息歷史表
+
+| 欄位名稱 | 資料型別 | 說明 |
+|----------|-----------|------|
+| `etf_id` | `VARCHAR(20)` | 主鍵之一，外鍵對應 `etfs.etf_id` |
+| `date` | `DATE` | 主鍵之一，配息發放日 |
+| `dividend_per_unit` | `DECIMAL(10,4)` | 每單位配息金額 |
+| `currency` | `VARCHAR(10)` | 配息幣別 |
+
+---
+
+## 🔗 資料關聯說明（ERD）
+
+```text
+etfs.etf_id
+  ├── etf_daily_prices.etf_id     (1:N 每日價格)
+  ├── etf_backtest_results.etf_id (1:N 回測結果)
+  └── etf_dividend.etf_id         (1:N 配息紀錄)

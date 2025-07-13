@@ -5,16 +5,25 @@ from crawler.tasks_etf_list_tw import scrape_etf_list         # ✅ 匯入爬 ET
 from crawler.tasks_crawler_etf_tw import crawler_etf_data
 from crawler.tasks_backtest_utils_tw import calculate_indicators, evaluate_performance      # ✅ 匯入技術指標與績效分析
 
+from database.main import (
+    write_etfs_to_db,
+    write_etf_daily_price_to_db,
+    write_etf_dividend_to_db,
+    write_etf_backtest_results_to_db,
+)
+
 
 if __name__ == "__main__":
     # 0️⃣ 先爬 ETF 清單（名稱與代號），並儲存成 etf_list.csv
     print("開始 0️⃣ 爬 ETF 清單")
-    scrape_etf_list()
+    etfs_df = scrape_etf_list()
+    write_etfs_to_db(etfs_df)
 
     # 1️⃣ 根據 ETF 清單下載歷史價格與配息資料
     print("開始 1️⃣ 下載歷史價格與配息資料")
     csv_path = "crawler/output/output_etf_number/etf_list.csv"
-    crawler_etf_data(csv_path)
+    etf_dividend_df = crawler_etf_data(csv_path)
+    write_etf_dividend_to_db(etf_dividend_df)
 
     # 2️⃣ 進行技術指標計算與績效分析
     print("開始 2️⃣ 進行技術指標計算與績效分析")
@@ -45,14 +54,15 @@ if __name__ == "__main__":
                 df['date'] = pd.to_datetime(df['date'])
 
                 # 呼叫 Celery 任務函數本體（同步執行）
-                df_with_indicators = calculate_indicators(df)
+                etf_daily_price_df = calculate_indicators(df)
+                write_etf_daily_price_to_db(etf_daily_price_df)
 
                 # 儲存技術指標結果
                 indicator_path = os.path.join(output_dir, f"{ticker}_with_indicators.csv")
-                df_with_indicators.to_csv(indicator_path, index=False)
+                etf_daily_price_df.to_csv(indicator_path, index=False)
 
                 # 計算績效指標
-                metrics = evaluate_performance(df_with_indicators)
+                metrics = evaluate_performance(etf_daily_price_df)
                 if metrics is None:
                     print(f"❌ Error processing {ticker}: invalid data")
                     continue
@@ -64,13 +74,16 @@ if __name__ == "__main__":
                 print(f"❌ Error processing {ticker}: {e}")
 
     # === 匯出回測績效指標 ===
-    summary_df = pd.DataFrame(summary_list)
+    etf_backtest_df = pd.DataFrame(summary_list)
 
     # 指定欄位輸出順序
     desired_order = ["etf_id", "backtest_start", "backtest_end", "total_return", "cagr", "max_drawdown", "sharpe_ratio"]
-    summary_df = summary_df[[col for col in desired_order if col in summary_df.columns]]
+    etf_backtest_df = etf_backtest_df[
+        [col for col in desired_order if col in etf_backtest_df.columns]
+    ]
     
     summary_csv_path = os.path.join(performance_dir, "backtesting_performance_summary.csv")
-    summary_df.to_csv(summary_csv_path, index=False)
+    etf_backtest_df.to_csv(summary_csv_path, index=False)
+    write_etf_backtest_results_to_db(etf_backtest_df)
 
     print("✅ 技術指標與績效分析完成")

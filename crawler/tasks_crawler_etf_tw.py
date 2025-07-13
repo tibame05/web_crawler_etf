@@ -6,7 +6,9 @@ import yfinance as yf
 from crawler.worker import app
 
 @app.task()
-def crawler_etf_data(stock_list_path: str  = "crawler/output/output_etf_number/etf_list.csv"):
+def crawler_etf_data(
+    stock_list_path: str = "crawler/output/output_etf_number/etf_list.csv",
+) -> pd.DataFrame:
     """
     從 ETF 清單中逐一抓取各 ETF 的歷史價格與配息資料，並儲存為 CSV。
     
@@ -25,6 +27,7 @@ def crawler_etf_data(stock_list_path: str  = "crawler/output/output_etf_number/e
     etf_df = pd.read_csv(stock_list_path, encoding="utf-8-sig", sep="\t")
     etf_df.columns = etf_df.columns.str.strip()
     ticker_list = etf_df["etf_id"].dropna().tolist()
+    etf_dividend_df = pd.DataFrame()
 
     # 逐一處理每一檔 ETF
     for ticker in ticker_list:
@@ -72,8 +75,14 @@ def crawler_etf_data(stock_list_path: str  = "crawler/output/output_etf_number/e
             
             # 指定欄位順序
             dividends_df = dividends_df[["etf_id", "date", "dividend_per_unit", "currency"]]
+            etf_dividend_df = pd.concat(
+                [etf_dividend_df, dividends_df], ignore_index=True
+            )
 
             # 儲存 CSV
             dividends_df.to_csv(f"{dividend_dir}/{ticker}_dividends.csv", index=False, encoding="utf-8-sig")
+
         else:
             print(f"{ticker} 沒有配息資料")
+
+    return etf_dividend_df
