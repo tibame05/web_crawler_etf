@@ -87,3 +87,4 @@ def get_etf_list(url="https://tw.tradingview.com/markets/etfs/funds-usa/"):
         csv_name = os.path.join('Output/historical_price_data', f"{r}.csv")
         df.to_csv(csv_name, encoding="utf-8", index=False)
         print(f"[✅ 完成] 已儲存 {csv_name}")
+    return df

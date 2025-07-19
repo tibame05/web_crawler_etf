@@ -63,3 +63,4 @@ def US_ETF_list(url="https://tw.tradingview.com/markets/etfs/funds-usa/"):
         writer.writerow(['etf_id', 'etf_name','region','currency'])
         writer.writerows(etf_data)
     print("已成功寫入 us_etf_list.csv")
+    return df

@@ -174,4 +174,4 @@ def US_ETF_Yahoo_Download(url="https://tw.tradingview.com/markets/etfs/funds-usa
     summary_df.to_csv(summary_csv_path, index=False)
 
     print("✅ 技術指標與績效分析完成")
-
+    return df

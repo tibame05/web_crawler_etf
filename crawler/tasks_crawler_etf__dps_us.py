@@ -70,3 +70,4 @@ def US_ETF_Yahoo_DPS(url="https://tw.tradingview.com/markets/etfs/funds-usa/"):
             dividends_df.to_csv(f"{dividend_dir}/{ticker}_dividends.csv", index=False, encoding="utf-8-sig")
         else:
             print(f"{ticker} 沒有配息資料") 
+    return dividends_df
