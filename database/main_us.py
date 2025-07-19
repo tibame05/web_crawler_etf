@@ -34,7 +34,7 @@ with engine_no_db.connect() as conn:
 
 # 指定連到 etf 資料庫
 engine = create_engine(
-    f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/etf_us",
+    f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/etf",
     # echo=True,  # 所有 SQL 指令都印出來（debug 用）
     pool_pre_ping=True,  # 連線前先 ping 一下，確保連線有效
 )
@@ -151,7 +151,7 @@ def upsert_dataframe_to_db(df: pd.DataFrame, table: Table, primary_keys: list):
         conn.execute(update_stmt, records)
 
 
-def write_etfs_to_db(etfs_df: pd.DataFrame):
+def write_etf_list_us_db(etf_list_us: pd.DataFrame):
     """
     將 ETF 基本資料寫入資料庫，若主鍵已存在則更新資料。
 
@@ -165,12 +165,12 @@ def write_etfs_to_db(etfs_df: pd.DataFrame):
 
     primary_keys = ["etf_id"]
 
-    etfs_df = filter_and_replace_nan(etfs_df, primary_keys)
+    etfs_df = filter_and_replace_nan(etf_list_us, primary_keys)
 
     upsert_dataframe_to_db(etfs_df, etfs_table, primary_keys)
 
 
-def write_etf_daily_price_to_db(etf_daily_price_df: pd.DataFrame):
+def write_crawler_etf_us_to_db(crawler_etf_us: pd.DataFrame):
     """
     將 ETF 每日價格資料寫入資料庫，若主鍵已存在則執行更新。
 
@@ -184,31 +184,12 @@ def write_etf_daily_price_to_db(etf_daily_price_df: pd.DataFrame):
 
     primary_keys = ["etf_id", "date"]
 
-    etf_daily_price_df = filter_and_replace_nan(etf_daily_price_df, primary_keys)
+    etf_daily_price_df = filter_and_replace_nan(crawler_etf_us, primary_keys)
 
     upsert_dataframe_to_db(etf_daily_price_df, etf_daily_price_table, primary_keys)
 
 
-def write_etf_dividend_to_db(etf_dividend_df: pd.DataFrame):
-    """
-    將 ETF 配息資料寫入資料庫，若主鍵已存在則更新資料。
-
-    parameters:
-        etf_dividend_df (pd.DataFrame):
-            ETF 配息資料。每筆資料應包含主鍵欄位（etf_id, date）與配息金額等其他欄位。
-
-    returns:
-        None
-    """
-
-    primary_keys = ["etf_id", "date"]
-
-    etf_dividend_df = filter_and_replace_nan(etf_dividend_df, primary_keys)
-
-    upsert_dataframe_to_db(etf_dividend_df, etf_dividend_table, primary_keys)
-
-
-def write_etf_backtest_results_to_db(etf_backtest_df: pd.DataFrame):
+def write_backtest_utils_us_to_db(backtest_utils_us: pd.DataFrame):
     """
     將 ETF 回測結果寫入資料庫，若主鍵已存在則更新資料。
 
@@ -223,6 +204,26 @@ def write_etf_backtest_results_to_db(etf_backtest_df: pd.DataFrame):
 
     primary_keys = ["etf_id"]
 
-    etf_backtest_df = filter_and_replace_nan(etf_backtest_df, primary_keys)
+    etf_backtest_df = filter_and_replace_nan(backtest_utils_us, primary_keys)
 
     upsert_dataframe_to_db(etf_backtest_df, etf_backtest_results_table, primary_keys)
+
+
+
+def write_crawler_etf_dps_us_to_db(crawler_etf_dps_us: pd.DataFrame):
+    """
+    將 ETF 配息資料寫入資料庫，若主鍵已存在則更新資料。
+
+    parameters:
+        etf_dividend_df (pd.DataFrame):
+            ETF 配息資料。每筆資料應包含主鍵欄位（etf_id, date）與配息金額等其他欄位。
+
+    returns:
+        None
+    """
+
+    primary_keys = ["etf_id", "date"]
+
+    etf_dividend_df = filter_and_replace_nan(crawler_etf_dps_us, primary_keys)
+
+    upsert_dataframe_to_db(etf_dividend_df, etf_dividend_table, primary_keys)
