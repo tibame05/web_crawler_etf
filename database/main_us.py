@@ -56,7 +56,7 @@ etf_daily_price_table = Table(
     "etf_daily_price_us",
     metadata,
     Column(
-        "etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True
+        "etf_id", VARCHAR(20), ForeignKey("etfs_us.etf_id"), primary_key=True
     ),  # ETF 代碼
     Column("date", Date, primary_key=True),  # 日期
     Column("adj_close", DECIMAL(10, 4)),  # 調整後收盤價
@@ -82,7 +82,7 @@ etf_dividend_table = Table(
     "etf_dividend_us",
     metadata,
     Column(
-        "etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True
+        "etf_id", VARCHAR(20), ForeignKey("etfs_us.etf_id"), primary_key=True
     ),  # ETF 代碼
     Column("date", Date, primary_key=True),  # 除息日
     Column("dividend_per_unit", DECIMAL(10, 4)),  # 每單位配息金額
@@ -94,7 +94,7 @@ etf_backtest_results_table = Table(
     "etf_backtest_results_us",
     metadata,
     Column(
-        "etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True
+        "etf_id", VARCHAR(20), ForeignKey("etfs_us.etf_id"), primary_key=True
     ),  # ETF 代碼
     Column("backtest_start", Date, nullable=False),  # 回測開始日期
     Column("backtest_end", Date, nullable=False),  # 回測結束日期
