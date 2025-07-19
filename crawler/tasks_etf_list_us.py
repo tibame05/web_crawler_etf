@@ -12,7 +12,7 @@ from crawler.worker import app
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
-def US_ETF_list(url="https://tw.tradingview.com/markets/etfs/funds-usa/"):
+def etf_list_us(url):
     os.makedirs("Output", exist_ok=True)
 
     options = Options()

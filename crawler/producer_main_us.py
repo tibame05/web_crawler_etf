@@ -1,17 +1,18 @@
-from crawler.tasks_etf_list_us import US_ETF_list  
-from crawler.tasks_crawler_etf_us import get_etf_list
-from crawler.tasks_backtest_utils_us import US_ETF_Yahoo_Download    
-from crawler.tasks_crawler_etf__dps_us import US_ETF_Yahoo_DPS      
+from crawler.tasks_etf_list_us import etf_list_us  
+from crawler.tasks_crawler_etf_us import crawler_etf_us
+from crawler.tasks_backtest_utils_us import backtest_utils_us    
+from crawler.tasks_crawler_etf_dps_us import crawler_etf_dps_us      
 
 if __name__ == "__main__":
+    us_etf_url="https://tw.tradingview.com/markets/etfs/funds-usa/"
     print("ETF 清單")
-    US_ETF_list.apply_async()
+    etf_list_us = etf_list_us.apply_async(url=us_etf_url)  # 使用 apply_async 發送任務到 RabbitMQ
 
     print("歷史價格")
-    get_etf_list.apply_async()
+    crawler_etf_us = crawler_etf_us.apply_async(url=us_etf_url)
     
     print("技術指標與績效分析")
-    US_ETF_Yahoo_Download.apply_async()
+    backtest_utils_us = backtest_utils_us.apply_async(url=us_etf_url)
 
     print("配息資料")
-    US_ETF_Yahoo_DPS.apply_async()
+    crawler_etf_dps_us = crawler_etf_dps_us.apply_async(url=us_etf_url)

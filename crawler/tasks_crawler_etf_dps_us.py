@@ -18,7 +18,7 @@ from crawler.worker import app
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
-def US_ETF_Yahoo_DPS(url="https://tw.tradingview.com/markets/etfs/funds-usa/"):
+def crawler_etf__dps_us(url):
 
     dividend_dir = "Output/output_dividends"
     os.makedirs(dividend_dir, exist_ok=True)
