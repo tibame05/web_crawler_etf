@@ -6,7 +6,7 @@ crawler/producer_main_tw.py
 crawler/producer_main_us.py
 crawler/tasks_backtest_utils_tw.py
 crawler/tasks_backtest_utils_us.py
-crawler/tasks_crawler_etf__dps_us.py
+crawler/tasks_crawler_etf_dps_us.py
 crawler/tasks_crawler_etf_tw.py
 crawler/tasks_crawler_etf_us.py
 crawler/tasks_etf_list_tw.py
@@ -15,6 +15,7 @@ crawler/worker.py
 database/__init__.py
 database/config.py
 database/main.py
+database/main_us.py
 etf_lab.egg-info/PKG-INFO
 etf_lab.egg-info/SOURCES.txt
 etf_lab.egg-info/dependency_links.txt
