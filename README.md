@@ -211,7 +211,7 @@ pipenv run python crawler/producer_main.py
 ### 打包 Image
 
 ```bash
-docker build -f Dockerfile -t joycehsu65/web_crawler_tw:0.0.1 .
+docker build -f Dockerfile -t joycehsu65/web_crawler:0.0.1 .
 ```
 
 - ⚠️ 這裡的`joycehsu65`要換成自己的 Docker name
@@ -225,13 +225,13 @@ docker images
 ### 上傳 Image
 
 ```bash
-docker push joycehsu65/web_crawler_tw:0.0.1
+docker push joycehsu65/web_crawler:0.0.1
 ```
 
 ### 刪除 docker image
 
 ```bash
-docker rmi joycehsu65/web_crawler_tw:0.0.1
+docker rmi joycehsu65/web_crawler:0.0.1
 ```
 
 ---
@@ -302,7 +302,7 @@ docker logs web-crawler-rabbitmq-1
 啟動 Celery 工人來執行佇列任務：
 
 ```bash
-pipenv run celery -A crawler.worker worker --loglevel=info
+pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h
 ```
 
 - `A crawler.worker`：指定 Celery app 的模組位置
@@ -313,11 +313,10 @@ pipenv run celery -A crawler.worker worker --loglevel=info
 你可以同時啟動多個工人，提高任務處理效率：
 
 ```bash
-pipenv run celery -A crawler.worker worker -n worker1 --loglevel=info
-pipenv run celery -A crawler.worker worker -n worker2 --loglevel=info
+pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q tw
+pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q us
 ```
 
-- `n worker1`：指定工人名稱，便於管理
 
 ### 🚀 8. 發送任務（Producer）
 
