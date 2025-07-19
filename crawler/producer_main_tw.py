@@ -16,13 +16,13 @@ from database.main import (
 if __name__ == "__main__":
     # 0️⃣ 先爬 ETF 清單（名稱與代號），並儲存成 etf_list.csv
     print("開始 0️⃣ 爬 ETF 清單")
-    etfs_df = scrape_etf_list()
+    etfs_df = scrape_etf_list.apply_async()
     write_etfs_to_db(etfs_df)
 
     # 1️⃣ 根據 ETF 清單下載歷史價格與配息資料
     print("開始 1️⃣ 下載歷史價格與配息資料")
     csv_path = "crawler/output/output_etf_number/etf_list.csv"
-    etf_dividend_df = crawler_etf_data(csv_path)
+    etf_dividend_df = crawler_etf_data.apply_async(csv_path)
     write_etf_dividend_to_db(etf_dividend_df)
 
     # 2️⃣ 進行技術指標計算與績效分析
@@ -54,7 +54,7 @@ if __name__ == "__main__":
                 df['date'] = pd.to_datetime(df['date'])
 
                 # 呼叫 Celery 任務函數本體（同步執行）
-                etf_daily_price_df = calculate_indicators(df)
+                etf_daily_price_df = calculate_indicators.apply_async(df)
                 write_etf_daily_price_to_db(etf_daily_price_df)
 
                 # 儲存技術指標結果
@@ -62,7 +62,7 @@ if __name__ == "__main__":
                 etf_daily_price_df.to_csv(indicator_path, index=False)
 
                 # 計算績效指標
-                metrics = evaluate_performance(etf_daily_price_df)
+                metrics = evaluate_performance.apply_async(etf_daily_price_df)
                 if metrics is None:
                     print(f"❌ Error processing {ticker}: invalid data")
                     continue

@@ -18,6 +18,7 @@ finmind = "*"
 sqlalchemy = "==1.4.54"
 pymysql = "==1.1.1"
 etf-lab = {editable = true, path = "."}
+selenium = "==4.27.1"
 
 [dev-packages]
 

@@ -108,40 +108,6 @@ etf_backtest_results_table = Table(
 metadata.create_all(engine)
 
 
-# # 假資料
-# df_etfs = pd.DataFrame(
-#     [
-#         {"id": "0050", "name": "test1", "region": "TW", "currency": "TWD"},
-#         {"id": "0010", "name": "test2", "region": "USD", "currency": "USD"},
-#     ]
-# )
-
-# df_etf_daily_price = pd.DataFrame(
-#     [
-#         {
-#             "etf_id": "0050",
-#             "date": "2025-07-04",
-#             "open": 100.55,
-#             "high": 200.55,
-#             "low": 50.55,
-#             "close": 100.00,
-#             "adj_close": 230.00,
-#             "volume": 10000,
-#         },
-#         {
-#             "etf_id": "0010",
-#             "date": "2025-07-04",
-#             "open": 100.55,
-#             "high": 200.55,
-#             "low": 50.55,
-#             "close": 100.00,
-#             "adj_close": 230.00,
-#             "volume": 30000,
-#         },
-#     ]
-# )
-
-
 def filter_and_replace_nan(df: pd.DataFrame, required_fields: list) -> pd.DataFrame:
     """
     將 DataFrame 中的 NaN 轉為 None，並過濾掉主鍵缺失的資料列。

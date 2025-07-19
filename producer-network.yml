@@ -1,10 +1,20 @@
 version: '3.0'  # 使用 Docker Compose 的版本 3.0，適合大部分部署場景
 
 services:
-  crawler_producer:  # 定義一個服務
+  crawler_tw_producer:  # 定義一個服務
     image: winston07291/web_crawler_tw:${DOCKER_IMAGE_VERSION}  # 使用的映像檔名稱與標籤（版本）
-    hostname: "crawler_producer"  # 設定 hostname
-    command: pipenv run python crawler/producer_main.py
+    hostname: "crawler_tw_producer"  # 設定 hostname
+    command: pipenv run python crawler/producer_main_tw.py
+    # restart: always  # 若容器停止或崩潰，自動重新啟動
+    environment:
+      - TZ=Asia/Taipei  # 設定時區為台北（UTC+8）
+    networks:
+      - etf_lib_network  # 將此服務連接到 etf_lib_network 網路
+
+  crawler_us_producer:  # 定義一個服務
+    image: winston07291/web_crawler_tw:${DOCKER_IMAGE_VERSION}  # 使用的映像檔名稱與標籤（版本）
+    hostname: "crawler_us_producer"  # 設定 hostname
+    command: pipenv run python crawler/producer_main_us.py
     # restart: always  # 若容器停止或崩潰，自動重新啟動
     environment:
       - TZ=Asia/Taipei  # 設定時區為台北（UTC+8）
