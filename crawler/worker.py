@@ -11,13 +11,13 @@ app = Celery(
     "task",
     # 只包含 tasks.py 裡面的程式, 才會成功執行
     include=[
-        "crawler.tasks_etf_list",
-        "crawler.tasks_crawler_etf", 
-        "crawler.tasks_backtest_utils"
+        "crawler.tasks_etf_list_tw",
+        "crawler.tasks_crawler_etf_tw", 
+        "crawler.tasks_backtest_utils_tw",
         
-        "crawler.tasks_etf_list_us"
-        "crawler.tasks_crawler_etf_us"
-        "crawler.tasks_backtest_utils_us"
+        "crawler.tasks_etf_list_us",
+        "crawler.tasks_crawler_etf_us",
+        "crawler.tasks_backtest_utils_us",
         "crawler.tasks_crawler_etf__dps_us"
 
     ],
