@@ -1,13 +1,13 @@
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
-import os 
+
 import yfinance as yf
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 import time
-import csv
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -19,7 +19,7 @@ from crawler.worker import app
 @app.task()
 def backtest_utils_us(url):
     
-    os.makedirs("Output/historical_price_data", exist_ok=True)
+
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--disable-gpu")
@@ -112,10 +112,7 @@ def backtest_utils_us(url):
         df = df[columns_order]
         # 儲存技術指標結果
         print("開始 2️⃣ 進行技術指標計算與績效分析")
-        output_dir = "Output/output_with_indicators"              # 存儲含技術指標的結果
-        os.makedirs(output_dir, exist_ok=True)
-        csv_name = os.path.join(output_dir, f"{r}_with_indicators.csv")
-        df.to_csv(csv_name, encoding="utf-8", index=False)
+
 
 
         # 確保 date 欄位為 datetime
@@ -167,11 +164,4 @@ def backtest_utils_us(url):
     desired_order = ["etf_id", "backtest_start", "backtest_end", "total_return", "cagr", "max_drawdown", "sharpe_ratio"]
     summary_df = summary_df[desired_order]
 
-    performance_dir = "Output/output_backtesting_metrics"     # 儲存績效評估報表
-    os.makedirs(performance_dir, exist_ok=True)
-
-    summary_csv_path = os.path.join(performance_dir, "backtesting_performance_summary.csv")
-    summary_df.to_csv(summary_csv_path, index=False)
-
-    print("✅ 技術指標與績效分析完成")
-    return df
+    return summary_df

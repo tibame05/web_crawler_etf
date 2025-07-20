@@ -4,12 +4,12 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 import time
-import csv
+
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import os
+
 
 from crawler.worker import app
 
@@ -17,7 +17,7 @@ from crawler.worker import app
 @app.task()
 def crawler_etf_us(url):
 
-    os.makedirs("Output/historical_price_data", exist_ok=True)
+
 
     options = Options()
     options.add_argument("--headless")
@@ -80,11 +80,9 @@ def crawler_etf_us(url):
         df.columns = df.columns.droplevel(1)  # 把 'Price' 這層拿掉
 
         df.insert(0, "etf_id", r)  # 新增一欄「etf_id」
-        print (df)
+ 
         #df.columns = ["etf_id","date", "dividend_per_unit"]    # 調整欄位名稱
         columns_order = ['etf_id', 'date', 'adj_close','close','high', 'low', 'open','volume']
         df = df[columns_order]
-        csv_name = os.path.join('Output/historical_price_data', f"{r}.csv")
-        df.to_csv(csv_name, encoding="utf-8", index=False)
-        print(f"[✅ 完成] 已儲存 {csv_name}")
+
     return df

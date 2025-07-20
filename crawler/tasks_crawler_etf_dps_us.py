@@ -11,8 +11,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
-import csv
-import os
+
 
 from crawler.worker import app
 
@@ -20,8 +19,7 @@ from crawler.worker import app
 @app.task()
 def crawler_etf_dps_us(url):
 
-    dividend_dir = "Output/output_dividends"
-    os.makedirs(dividend_dir, exist_ok=True)
+
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--disable-gpu")
@@ -67,7 +65,7 @@ def crawler_etf_dps_us(url):
             dividends_df["date"] = dividends_df["date"].dt.date  # 只保留年月日
             dividends_df.insert(0, "etf_id", ticker)  # 新增股票代碼欄位，放第一欄
             dividends_df.insert(3, "currency", "USD")  # 新增欄位，放第一欄
-            dividends_df.to_csv(f"{dividend_dir}/{ticker}_dividends.csv", index=False, encoding="utf-8-sig")
+
         else:
             print(f"{ticker} 沒有配息資料") 
     return dividends_df
