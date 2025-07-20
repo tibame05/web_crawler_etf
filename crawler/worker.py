@@ -18,7 +18,7 @@ app = Celery(
         "crawler.tasks_etf_list_us",
         "crawler.tasks_crawler_etf_us",
         "crawler.tasks_backtest_utils_us",
-        "crawler.tasks_crawler_etf__dps_us"
+        "crawler.tasks_crawler_etf_dps_us"
 
     ],
     # 連線到 rabbitmq,
