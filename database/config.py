@@ -1,6 +1,12 @@
+from dotenv import load_dotenv
+from pathlib import Path
 import os
 
-MYSQL_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")
-MYSQL_PORT = int(os.environ.get("MYSQL_PORT", 3306))
-MYSQL_ACCOUNT = os.environ.get("MYSQL_ACCOUNT", "root")
-MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "test")
+# 指定 .env 路徑
+env_path = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(dotenv_path=env_path)
+
+MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", 3306))
+MYSQL_ACCOUNT = os.getenv("MYSQL_ACCOUNT", "root")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "test")
