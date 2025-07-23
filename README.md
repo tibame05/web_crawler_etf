@@ -303,7 +303,7 @@ docker logs web-crawler-rabbitmq-1
 啟動 Celery 工人來執行佇列任務：
 
 ```bash
-pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h
+pipenv run celery -A crawler.worker worker --loglevel=info
 ```
 
 - `A crawler.worker`：指定 Celery app 的模組位置

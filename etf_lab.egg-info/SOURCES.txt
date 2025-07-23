@@ -15,7 +15,6 @@ crawler/worker.py
 database/__init__.py
 database/config.py
 database/main.py
-database/main_us.py
 etf_lab.egg-info/PKG-INFO
 etf_lab.egg-info/SOURCES.txt
 etf_lab.egg-info/dependency_links.txt

@@ -1,6 +1,7 @@
 # main.py
 import os
 import pandas as pd
+import shutil
 from crawler.tasks_etf_list_tw import scrape_etf_list         # ✅ 匯入爬 ETF 清單的函式
 from crawler.tasks_crawler_etf_tw import crawler_etf_data
 from crawler.tasks_backtest_utils_tw import calculate_indicators, evaluate_performance      # ✅ 匯入技術指標與績效分析
@@ -14,15 +15,24 @@ from database.main import (
 
 
 if __name__ == "__main__":
+    # 控制是否要存 CSV
+    SAVE_CSV = False
+
     # 0️⃣ 先爬 ETF 清單（名稱與代號），並儲存成 etf_list.csv
     print("開始 0️⃣ 爬 ETF 清單")
-    etfs_df = scrape_etf_list.apply_async()
+    csv_path = "crawler/output/output_etf_number/etf_list.csv"
+    etfs_df = scrape_etf_list.apply_async(kwargs={
+        "output_path": csv_path,
+        "save_csv": SAVE_CSV
+    }).get()
     write_etfs_to_db(etfs_df)
 
     # 1️⃣ 根據 ETF 清單下載歷史價格與配息資料
     print("開始 1️⃣ 下載歷史價格與配息資料")
-    csv_path = "crawler/output/output_etf_number/etf_list.csv"
-    etf_dividend_df = crawler_etf_data.apply_async(csv_path)
+    etf_dividend_df = crawler_etf_data.apply_async(kwargs={
+        "stock_list_path": csv_path, 
+        "save_csv": SAVE_CSV
+    }).get()
     write_etf_dividend_to_db(etf_dividend_df)
 
     # 2️⃣ 進行技術指標計算與績效分析
@@ -54,15 +64,16 @@ if __name__ == "__main__":
                 df['date'] = pd.to_datetime(df['date'])
 
                 # 呼叫 Celery 任務函數本體（同步執行）
-                etf_daily_price_df = calculate_indicators.apply_async(df)
+                etf_daily_price_df = calculate_indicators.apply_async(args=[df]).get()
                 write_etf_daily_price_to_db(etf_daily_price_df)
 
                 # 儲存技術指標結果
-                indicator_path = os.path.join(output_dir, f"{ticker}_with_indicators.csv")
-                etf_daily_price_df.to_csv(indicator_path, index=False)
+                if SAVE_CSV:
+                    indicator_path = os.path.join(output_dir, f"{ticker}_with_indicators.csv")
+                    etf_daily_price_df.to_csv(indicator_path, index=False)
 
                 # 計算績效指標
-                metrics = evaluate_performance.apply_async(etf_daily_price_df)
+                metrics = evaluate_performance.apply_async(args=[etf_daily_price_df]).get()
                 if metrics is None:
                     print(f"❌ Error processing {ticker}: invalid data")
                     continue
@@ -81,9 +92,16 @@ if __name__ == "__main__":
     etf_backtest_df = etf_backtest_df[
         [col for col in desired_order if col in etf_backtest_df.columns]
     ]
-    
-    summary_csv_path = os.path.join(performance_dir, "backtesting_performance_summary.csv")
-    etf_backtest_df.to_csv(summary_csv_path, index=False)
+
+    # 匯出 summary
+    if SAVE_CSV:
+        summary_csv_path = os.path.join(performance_dir, "backtesting_performance_summary.csv")
+        etf_backtest_df.to_csv(summary_csv_path, index=False)
+
     write_etf_backtest_results_to_db(etf_backtest_df)
+
+    # ✅ 任務完成後清除 output 資料夾
+    if not SAVE_CSV:
+        shutil.rmtree("crawler/output", ignore_errors=True)
 
     print("✅ 技術指標與績效分析完成")

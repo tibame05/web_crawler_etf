@@ -127,8 +127,8 @@ FastAPI 讀取 MySQL → 對外提供 API / 給視覺化平台查詢
 ### 1️⃣ 下載專案
 
 ```bash
-git clone https://github.com/tibame05/web-crawler.git
-cd web-crawler
+git clone https://github.com/tibame05/web_crawler_etf.git
+cd web_crawler_etf
 ```
 
 ### 2️⃣ 設定 Python 環境（使用 Pyenv + Pipenv）
@@ -210,7 +210,8 @@ pipenv run python
 ✅ 執行任務腳本：
 
 ```bash
-pipenv run python crawler/producer_main.py
+pipenv run python crawler/producer_main_tw.py
+pipenv run python crawler/producer_main_us.py
 ```
 
 ---
@@ -332,7 +333,8 @@ pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q us
 執行 `producer_main.py`，將任務加入 RabbitMQ 佇列：
 
 ```bash
-pipenv run python crawler/producer_main.py
+pipenv run python crawler/producer_main_tw.py
+pipenv run python crawler/producer_main_us.py
 ```
 
 > 任務將預設加入名為 celery 的佇列。

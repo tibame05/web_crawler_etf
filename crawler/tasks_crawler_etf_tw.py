@@ -7,7 +7,8 @@ from crawler.worker import app
 
 @app.task()
 def crawler_etf_data(
-    stock_list_path: str = "crawler/output/output_etf_number/etf_list.csv",
+    stock_list_path: str = "crawler/output/output_etf_number/etf_list.csv", 
+    save_csv: bool = False
 ) -> pd.DataFrame:
     """
     從 ETF 清單中逐一抓取各 ETF 的歷史價格與配息資料，並儲存為 CSV。
@@ -57,7 +58,8 @@ def crawler_etf_data(
         df.columns = df.columns.str.lower()
 
         # 儲存價格資料
-        df.to_csv(f"{historical_dir}/{ticker}.csv", index=False)
+        if save_csv:
+            df.to_csv(f"{historical_dir}/{ticker}.csv", index=False)
 
 
         # 2️⃣ 抓取配息資料
@@ -80,8 +82,8 @@ def crawler_etf_data(
             )
 
             # 儲存 CSV
-            dividends_df.to_csv(f"{dividend_dir}/{ticker}_dividends.csv", index=False, encoding="utf-8-sig")
-
+            if save_csv:
+                dividends_df.to_csv(f"{dividend_dir}/{ticker}_dividends.csv", index=False, encoding="utf-8-sig")
         else:
             print(f"{ticker} 沒有配息資料")
 

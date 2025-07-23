@@ -6,7 +6,7 @@ import os
 from crawler.worker import app
 
 @app.task()
-def scrape_etf_list(output_path="crawler/output/output_etf_number/etf_list.csv") -> pd.DataFrame:
+def scrape_etf_list(output_path="crawler/output/output_etf_number/etf_list.csv", save_csv: bool = False) -> pd.DataFrame:
     """
     從 Yahoo 財經抓取台灣 ETF 名稱與代碼，並儲存成 TSV 檔案。
 
@@ -37,9 +37,9 @@ def scrape_etf_list(output_path="crawler/output/output_etf_number/etf_list.csv")
 
     df = pd.DataFrame(etf_list)
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    df.to_csv(output_path, sep="\t", encoding="utf-8", index=False)
-
-    print(f"已儲存 ETF 名單至：{output_path}")
+    if save_csv:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        df.to_csv(output_path, sep="\t", encoding="utf-8", index=False)
+        print(f"已儲存 ETF 名單至：{output_path}")
 
     return df
