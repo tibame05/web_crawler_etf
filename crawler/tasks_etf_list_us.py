@@ -6,6 +6,12 @@ from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 
 import pandas as pd
+from database.main import (
+    write_etf_list_us_db,
+    write_crawler_etf_us_to_db,
+    write_backtest_utils_us_to_db,
+    write_crawler_etf_dps_us_to_db,
+)
 
 from crawler.worker import app
 
@@ -49,4 +55,9 @@ def etf_list_us(url):
 
     df = pd.DataFrame(etf_data, columns=['id', 'name','region','currency'])
     
+    write_etf_list_us_db(df)
+    write_crawler_etf_us_to_db(df)
+    write_backtest_utils_us_to_db(df)
+    write_crawler_etf_dps_us_to_db(df)
+
     return df
