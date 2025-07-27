@@ -19,9 +19,6 @@ from sqlalchemy.dialects.mysql import (
 
 from database.config import MYSQL_ACCOUNT, MYSQL_HOST, MYSQL_PASSWORD, MYSQL_PORT
 
-# 匯入自定義的資料庫連線設定
-from database.connection import get_db_session
-
 # 建立連接到 MySQL 的資料庫引擎，不指定資料庫
 engine_no_db = create_engine(
     f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/",
@@ -271,7 +268,7 @@ def read_etf_price_from_db(etf_id: str) -> pd.DataFrame:
     """
     從資料庫讀取某支 ETF 的歷史價格資料。
     """
-    with get_db_session() as session:
+    with engine_no_db() as session:
         stmt = select(etf_daily_price_table).where(etf_daily_price_table.c.etf_id == etf_id)
         result = session.execute(stmt).fetchall()
         df = pd.DataFrame(result, columns=result[0].keys()) if result else pd.DataFrame()
