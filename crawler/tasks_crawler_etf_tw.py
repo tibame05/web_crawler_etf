@@ -1,4 +1,4 @@
-# 載入套件
+# crawler/tasks_crawler_etf_tw.py
 import os
 import pandas as pd
 import yfinance as yf
@@ -7,34 +7,37 @@ from crawler.worker import app
 
 @app.task()
 def crawler_etf_data(
-    stock_list_path: str = "crawler/output/output_etf_number/etf_list.csv", 
-    save_csv: bool = False
+    etf_df: pd.DataFrame, 
+    save_csv: bool = False,
+    start_date: str = "2015-01-01", end_date: str = None
 ) -> pd.DataFrame:
     """
-    從 ETF 清單中逐一抓取各 ETF 的歷史價格與配息資料，並儲存為 CSV。
+    根據傳入的 ETF DataFrame（欄位需包含 'etf_id'）抓取歷史價格，必要時儲存為 CSV。
     
     參數：
-        stock_list_path (str): ETF 編號清單檔案的路徑（通常為 etf_list.csv）
+        etf_df (pd.DataFrame): ETF 基本資料表格，應包含欄位 'etf_id'
+        save_csv (bool): 是否儲存中繼 CSV 檔（預設 False）
+
+    回傳：
+        pd.DataFrame: 所有 ETF 的歷史價格資料彙總結果（合併後的 DataFrame）
     """
 
-    # 建立歷史價格資料夾與配息子資料夾
-    historical_dir = "crawler/output/output_historical_price_data"
-    os.makedirs(historical_dir, exist_ok=True)
-
-    dividend_dir = "crawler/output/output_dividends"
-    os.makedirs(dividend_dir, exist_ok=True)
+    # 建立歷史價格資料夾
+    if save_csv:
+        historical_dir = "crawler/output/output_historical_price_data"
+        os.makedirs(historical_dir, exist_ok=True)
 
     # 讀取 ETF 編號清單（例如 etf_list.csv）
-    etf_df = pd.read_csv(stock_list_path, encoding="utf-8-sig", sep="\t")
     etf_df.columns = etf_df.columns.str.strip()
     ticker_list = etf_df["etf_id"].dropna().tolist()
-    etf_dividend_df = pd.DataFrame()
+
+    etf_price_df_all = pd.DataFrame()
 
     # 逐一處理每一檔 ETF
     for ticker in ticker_list:
         print(f"下載：{ticker}")
-        start_date = '2015-01-01' # 開始日期
-        end_date = pd.Timestamp.today().strftime('%Y-%m-%d') # 結束日期為今天
+        if end_date is None:
+            end_date = pd.Timestamp.today().strftime('%Y-%m-%d') # 結束日期為今天
 
         # 1️⃣ 抓取歷史價格資料
         df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=False)
@@ -54,13 +57,47 @@ def crawler_etf_data(
         df.reset_index(inplace=True)
         df.insert(0, "etf_id", ticker)
 
-        # ✅ 將所有欄位名稱轉為小寫
+        # 將所有欄位名稱轉為小寫
         df.columns = df.columns.str.lower()
 
         # 儲存價格資料
         if save_csv:
             df.to_csv(f"{historical_dir}/{ticker}.csv", index=False)
 
+        # 將資料存入
+        etf_price_df_all = pd.concat([etf_price_df_all, df], ignore_index=True)
+
+
+    return etf_price_df_all
+
+@app.task()
+def crawler_etf_dividend_data(
+    etf_df: pd.DataFrame, 
+    save_csv: bool = False
+) -> pd.DataFrame:
+    """
+    根據傳入的 ETF DataFrame 抓取配息資料，必要時儲存為 CSV。
+
+    參數：
+        etf_df (pd.DataFrame): ETF 基本資料表格，應包含欄位 'etf_id'
+        save_csv (bool): 是否儲存中繼 CSV 檔（預設 False）
+
+    回傳：
+        pd.DataFrame: 所有 ETF 的配息資料合併結果
+    """
+    # 建立配息子資料夾
+    if save_csv:
+        dividend_dir = "crawler/output/output_dividends"
+        os.makedirs(dividend_dir, exist_ok=True)
+
+    # 讀取 ETF 編號清單（例如 etf_list.csv）
+    etf_df.columns = etf_df.columns.str.strip()
+    ticker_list = etf_df["etf_id"].dropna().tolist()
+    etf_dividend_df = pd.DataFrame()
+
+    # 逐一處理每一檔 ETF
+    for ticker in ticker_list:
+        print(f"下載：{ticker}")
 
         # 2️⃣ 抓取配息資料
         dividends = yf.Ticker(ticker).dividends
