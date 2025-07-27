@@ -13,6 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from crawler.worker import app
+from database.main import write_backtest_utils_us_to_db
 
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
@@ -163,5 +164,7 @@ def backtest_utils_us(url):
     # 指定欄位輸出順序
     desired_order = ["etf_id", "backtest_start", "backtest_end", "total_return", "cagr", "max_drawdown", "sharpe_ratio"]
     summary_df = summary_df[desired_order]
+
+    write_backtest_utils_us_to_db(summary_df)
 
     return summary_df

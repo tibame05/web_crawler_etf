@@ -12,6 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 
 from crawler.worker import app
+from database.main import write_crawler_etf_us_to_db
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
@@ -84,5 +85,7 @@ def crawler_etf_us(url):
         #df.columns = ["etf_id","date", "dividend_per_unit"]    # 調整欄位名稱
         columns_order = ['etf_id', 'date', 'adj_close','close','high', 'low', 'open','volume']
         df = df[columns_order]
+
+    write_crawler_etf_us_to_db(df)
 
     return df

@@ -3,12 +3,12 @@ from crawler.tasks_crawler_etf_us import crawler_etf_us
 from crawler.tasks_backtest_utils_us import backtest_utils_us    
 from crawler.tasks_crawler_etf_dps_us import crawler_etf_dps_us      
 
-from database.main import (
-    write_etf_list_us_db,
-    write_crawler_etf_us_to_db,
-    write_backtest_utils_us_to_db,
-    write_crawler_etf_dps_us_to_db,
-)
+# from database.main import (
+#     write_etf_list_us_db,
+#     write_crawler_etf_us_to_db,
+#     write_backtest_utils_us_to_db,
+#     write_crawler_etf_dps_us_to_db,
+# )
 
 
 if __name__ == "__main__":

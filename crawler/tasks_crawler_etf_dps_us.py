@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 
 
 from crawler.worker import app
+from database.main import write_crawler_etf_dps_us_to_db
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
@@ -67,5 +68,8 @@ def crawler_etf_dps_us(url):
             dividends_df.insert(3, "currency", "USD")  # 新增欄位，放第一欄
 
         else:
-            print(f"{ticker} 沒有配息資料") 
+            print(f"{ticker} 沒有配息資料")
+
+    write_crawler_etf_dps_us_to_db(dividends_df)
+
     return dividends_df
