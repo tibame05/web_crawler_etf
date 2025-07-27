@@ -13,7 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from crawler.worker import app
-from database.main import write_backtest_utils_us_to_db
+from database.main import write_etf_backtest_results_to_db, write_etf_daily_price_to_db
 
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
@@ -64,6 +64,11 @@ def backtest_utils_us(url):
         try:
             df = yf.download(r, start=start_date, end=end_date, auto_adjust=False)
             df = df[df["Volume"] > 0].ffill()
+
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.droplevel(1)
+            df.columns.name = None
+
             df.reset_index(inplace=True)
             df.rename(columns={
                 "Date": "date",
@@ -80,7 +85,6 @@ def backtest_utils_us(url):
             print(f"[⚠️ 錯誤] {r} 下載失敗：{e}")
             failed_tickers.append(r)
             continue
-        df.columns = df.columns.droplevel(1)  # 把 'Price' 這層拿掉
 
         
         # RSI (14) (相對強弱指標)
@@ -111,6 +115,9 @@ def backtest_utils_us(url):
                         'rsi', 'ma5', 'ma20', 'macd_line', 'macd_signal', 'macd_hist',
                         'pct_k', 'pct_d', 'daily_return', 'cumulative_return']
         df = df[columns_order]
+
+        write_etf_daily_price_to_db(df)
+
         # 儲存技術指標結果
         print("開始 2️⃣ 進行技術指標計算與績效分析")
 
@@ -165,6 +172,6 @@ def backtest_utils_us(url):
     desired_order = ["etf_id", "backtest_start", "backtest_end", "total_return", "cagr", "max_drawdown", "sharpe_ratio"]
     summary_df = summary_df[desired_order]
 
-    write_backtest_utils_us_to_db(summary_df)
+    write_etf_backtest_results_to_db(summary_df)
 
     return summary_df

@@ -6,7 +6,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 
 import pandas as pd
-from database.main import write_etf_list_us_db
+from database.main import write_etfs_to_db
 
 from crawler.worker import app
 
@@ -48,8 +48,8 @@ def etf_list_us(url):
 
     driver.quit()
 
-    df = pd.DataFrame(etf_data, columns=['id', 'name','region','currency'])
+    df = pd.DataFrame(etf_data, columns=["etf_id", "etf_name", "region", "currency"])
 
-    write_etf_list_us_db(df)
+    write_etfs_to_db(df)
 
     return df

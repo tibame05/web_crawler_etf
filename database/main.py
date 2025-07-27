@@ -11,10 +11,9 @@ from sqlalchemy import (
     BIGINT,
     create_engine,
     text,
-    select,
 )
 from sqlalchemy.dialects.mysql import (
-    insert  # 專用於 MySQL 的 insert 語法，可支援 on_duplicate_key_update
+    insert,  # 專用於 MySQL 的 insert 語法，可支援 on_duplicate_key_update
 )
 
 from database.config import MYSQL_ACCOUNT, MYSQL_HOST, MYSQL_PASSWORD, MYSQL_PORT
@@ -66,6 +65,16 @@ etf_daily_price_table = Table(
     Column("low", DECIMAL(10, 4)),  # 最低價
     Column("open", DECIMAL(10, 4)),  # 開盤價
     Column("volume", BIGINT),  # 成交量
+    Column("rsi", Float),  # 相對強弱指標
+    Column("ma5", Float),  # 5 日移動平均
+    Column("ma20", Float),  # 20 日移動平均
+    Column("macd_line", Float),  # MACD 線
+    Column("macd_signal", Float),  # MACD 信號線
+    Column("macd_hist", Float),  # MACD 柱狀圖
+    Column("pct_k", Float),  # 隨機指標 K 值
+    Column("pct_d", Float),  # 隨機指標 D 值
+    Column("daily_return", DECIMAL(8, 6)),  # 日報酬率
+    Column("cumulative_return", DECIMAL(10, 6)),  # 累積報酬率
 )
 
 # ETF 配息資料表
@@ -78,32 +87,6 @@ etf_dividend_table = Table(
     Column("date", Date, primary_key=True),  # 除息日
     Column("dividend_per_unit", DECIMAL(10, 4)),  # 每單位配息金額
     Column("currency", VARCHAR(10)),  # 幣別
-)
-
-# ETF 指標資料表
-etf_indicators_table = Table(
-    "etf_indicators",
-    metadata,
-    Column(
-        "etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True
-    ),  # ETF 代碼
-    Column("date", Date, primary_key=True),  # 日期
-    Column("adj_close", DECIMAL(10, 4)),  # 調整後收盤價
-    Column("close", DECIMAL(10, 4)),  # 收盤價
-    Column("high", DECIMAL(10, 4)),  # 最高價
-    Column("low", DECIMAL(10, 4)),  # 最低價
-    Column("open", DECIMAL(10, 4)),  # 開盤價
-    Column("volume", BIGINT),  # 成交量
-    Column("rsi", Float),  # 相對強弱指標
-    Column("ma5", Float),  # 5 日移動平均
-    Column("ma20", Float),  # 20 日移動平均
-    Column("macd_line", Float),  # MACD 線
-    Column("macd_signal", Float),  # MACD 信號線
-    Column("macd_hist", Float),  # MACD 柱狀圖
-    Column("pct_k", Float),  # 隨機指標 K 值
-    Column("pct_d", Float),  # 隨機指標 D 值
-    Column("daily_return", DECIMAL(8, 6)),  # 日報酬率
-    Column("cumulative_return", DECIMAL(10, 6)),  # 累積報酬率
 )
 
 # ETF 回測結果資料表
@@ -225,26 +208,7 @@ def write_etf_dividend_to_db(etf_dividend_df: pd.DataFrame):
     upsert_dataframe_to_db(etf_dividend_df, etf_dividend_table, primary_keys)
 
 
-def write_etf_indicators_to_db(etf_indicators_df: pd.DataFrame):
-    """
-    將 ETF 技術指標資料寫入資料庫，若主鍵已存在則執行更新。
-
-    parameters:
-        etf_indicators_df (pd.DataFrame):
-            ETF 技術指標資料。每筆資料需包含主鍵欄位（etf_id, date）、歷史價格資料與技術指標欄位，如 rsi、ma5、ma20 等。
-
-    returns:
-        None
-    """
-
-    primary_keys = ["etf_id", "date"]
-
-    etf_indicators_df = filter_and_replace_nan(etf_indicators_df, primary_keys)
-
-    upsert_dataframe_to_db(etf_indicators_df, etf_indicators_table, primary_keys)
-
-
-def write_etf_backtest_performance_to_db(etf_backtest_df: pd.DataFrame):
+def write_etf_backtest_results_to_db(etf_backtest_df: pd.DataFrame):
     """
     將 ETF 回測結果寫入資料庫，若主鍵已存在則更新資料。
 
@@ -262,14 +226,3 @@ def write_etf_backtest_performance_to_db(etf_backtest_df: pd.DataFrame):
     etf_backtest_df = filter_and_replace_nan(etf_backtest_df, primary_keys)
 
     upsert_dataframe_to_db(etf_backtest_df, etf_backtest_results_table, primary_keys)
-
-
-def read_etf_price_from_db(etf_id: str) -> pd.DataFrame:
-    """
-    從資料庫讀取某支 ETF 的歷史價格資料。
-    """
-    with engine_no_db() as session:
-        stmt = select(etf_daily_price_table).where(etf_daily_price_table.c.etf_id == etf_id)
-        result = session.execute(stmt).fetchall()
-        df = pd.DataFrame(result, columns=result[0].keys()) if result else pd.DataFrame()
-        return df
