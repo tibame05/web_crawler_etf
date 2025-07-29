@@ -38,6 +38,9 @@ def scrape_etf_list(output_path="crawler/output/output_etf_number/etf_list.csv",
 
     df = pd.DataFrame(etf_list)
 
+    # 移除 etf_id 為 "N/A" 的行
+    df = df[~df["etf_id"].isin(["N/A", None, ""])]
+
     if save_csv:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         df.to_csv(output_path, sep="\t", encoding="utf-8", index=False)

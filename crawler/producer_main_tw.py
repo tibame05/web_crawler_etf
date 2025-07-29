@@ -3,16 +3,14 @@ import os
 import pandas as pd
 import shutil
 from crawler.tasks_etf_list_tw import scrape_etf_list         # 匯入爬 ETF 清單的函式
-from crawler.tasks_crawler_etf_tw import crawler_etf_data, crawler_etf_dividend_data       # 匯入爬取 ETF 歷史價格與配息的函式
+from crawler.tasks_crawler_etf_tw import crawler_etf_daily_price, crawler_etf_dividend       # 匯入爬取 ETF 歷史價格與配息的函式
 from crawler.tasks_backtest_utils_tw import calculate_indicators, evaluate_performance      # 匯入技術指標與績效分析的函式
 
 from database.main import (
     write_etfs_to_db,   # 寫入 ETF 清單到資料庫
-    write_etf_daily_price_to_db,    # 寫入 ETF 日常價格到資料庫
+    write_etf_daily_price_to_db,    # 寫入 ETF 歷史價格與技術指標到資料庫
     write_etf_dividend_to_db,   # 寫入 ETF 配息到資料庫
-    write_etf_indicators_to_db,   # 寫入 ETF 技術指標到資料庫
-    write_etf_backtest_performance_to_db,   # 寫入 ETF 績效分析到資料庫
-    read_etf_price_from_db,   # 從資料庫讀取 ETF 歷史價格
+    write_etf_backtest_results_to_db,   # 寫入 ETF 績效分析到資料庫
 )
 
 
@@ -23,93 +21,71 @@ if __name__ == "__main__":
 
     # 0️⃣ 先爬 ETF 清單（名稱與代號），並儲存成 etf_list.csv
     print("開始 0️⃣ 爬 ETF 清單")
-    csv_path = "crawler/output/output_etf_number/etf_list.csv"
-    etfs_df = scrape_etf_list.apply_async(kwargs={
-        "output_path": csv_path,
-        "save_csv": SAVE_CSV
-    }).get()
+    etfs_df = scrape_etf_list.apply_async(kwargs={"save_csv": SAVE_CSV}).get()
+    print(f"✅ 爬取到所有 ETF list")
     write_etfs_to_db(etfs_df)
+    print("✅ ETF 清單已儲存到資料庫")
 
 
-    # 1️⃣ 根據 ETF 清單下載歷史價格與配息資料
-    print("開始 1️⃣ 下載歷史價格與配息資料")
-    # 歷史價格
-    etf_daily_price_df = crawler_etf_data.apply_async(args=[etfs_df], kwargs={
-        "save_csv": SAVE_CSV
-    }).get()
-    write_etf_daily_price_to_db(etf_daily_price_df)
-
-    # 配息資料
-    etf_dividend_df = crawler_etf_dividend_data.apply_async(args=[etfs_df], kwargs={
-        "save_csv": SAVE_CSV
-    }).get()
-    write_etf_dividend_to_db(etf_dividend_df)
-
-
-    # 2️⃣ 進行技術指標計算與績效分析
-    print("開始 2️⃣ 進行技術指標計算與績效分析")
-    if SAVE_CSV:
-        output_dir = "crawler/output/output_with_indicators"              # 存儲含技術指標的結果
-        performance_dir = "crawler/output/output_backtesting_metrics"     # 儲存績效評估報表
-        os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(performance_dir, exist_ok=True)
-
-    summary_list = []   # 儲存每支 ETF 的績效指標結果
-
-    # 針對每一個 ETF 歷史資料檔做分析
+    # 1️⃣~3️⃣ 每一支 ETF 都要做的事情
+    print("開始 🧩 處理所有 ETF 資料")
     ticker_list = etfs_df["etf_id"].dropna().tolist()
 
     for ticker in ticker_list:
+        print(f"\n🎯 處理：{ticker}")
+
         try:
-            # 讀取歷史價格資料
-            df = read_etf_price_from_db(ticker)
-
-            if df.empty:
-                print(f"❌ 沒有資料：{ticker}")
+            # === 1️⃣ 抓歷史價格 + 技術指標計算 ===
+            df_price = crawler_etf_daily_price.apply_async(args=[ticker]).get()
+            print(df_price.head())   # ← 檢查歷史價格資料
+            #print(df_price.columns)  # ← 確認欄位名稱對不對
+            if df_price.empty:
+                print(f"⚠️ 無歷史價格資料：{ticker}")
                 continue
 
-            # 把日期轉為 datetime 格式
-            df['date'] = pd.to_datetime(df['date'])
+            # 檢查日期欄位是否為 datetime 格式，再加上技術指標欄位
+            df_price["date"] = pd.to_datetime(df_price["date"])
+            df_combined = calculate_indicators.apply_async(args=[df_price]).get()
+            df_combined["date"] = pd.to_datetime(df_combined["date"])
+            print(df_combined[["adj_close", "daily_return", "cumulative_return"]].tail())
 
-            # 計算技術指標
-            etf_indicators_df = calculate_indicators.apply_async(args=[df]).get()
-            write_etf_indicators_to_db(etf_indicators_df)
+            # 刪除價格欄為 NaN 的資料（避免寫入全空 row）
+            key_cols = ["adj_close", "close", "high", "low", "open", "volume", "daily_return", "cumulative_return"]
+            df_combined.dropna(subset=key_cols, how="all", inplace=True)
 
-            # 儲存技術指標結果CSV
-            if SAVE_CSV:
-                indicator_path = os.path.join(output_dir, f"{ticker}_with_indicators.csv")
-                etf_indicators_df.to_csv(indicator_path, index=False)
-
-            # 計算績效指標
-            metrics = evaluate_performance.apply_async(args=[etf_indicators_df]).get()
-            if metrics is None:
-                print(f"❌ Error processing {ticker}: invalid data")
+            # 若清完為空，就不要寫入
+            if df_combined.empty:
+                print(f"⚠️ 清除 NaN 後無有效價格資料：{ticker}")
                 continue
-            metrics["etf_id"] = ticker
-            summary_list.append(metrics)
-            print(f"✅ 已完成：{ticker}的技術指標計算與績效分析")
+            write_etf_daily_price_to_db(df_combined)
+            print(f"✅ {ticker} 歷史價格與技術指標已儲存")
+
+            # === 2️⃣ 抓配息資料 ===
+            df_dividend = crawler_etf_dividend.apply_async(args=[ticker]).get()
+            if not df_dividend.empty:
+                write_etf_dividend_to_db(df_dividend)
+                print(f"✅ {ticker} 配息資料已儲存")
+            else:
+                print(f"⚠️ 無配息資料：{ticker}")
+
+            # === 3️⃣ 績效分析 ===
+            metrics = evaluate_performance.apply_async(args=[df_combined]).get() 
+            if metrics is not None:
+                metrics["etf_id"] = ticker
+
+                desired_order = [
+                    "etf_id", "backtest_start", "backtest_end",
+                    "total_return", "cagr", "max_drawdown", "sharpe_ratio"
+                ]
+                df_metrics = pd.DataFrame([metrics])  
+                df_metrics = df_metrics[[col for col in desired_order if col in df_metrics]]
+                write_etf_backtest_results_to_db(df_metrics)
+                print(f"✅ {ticker} 績效分析已儲存")
+            else:
+                print(f"⚠️ 無法進行績效分析：{ticker}")
 
         except Exception as e:
-            print(f"❌ Error processing {ticker}: {e}")
+            print(f"❌ 發生錯誤：{ticker} - {e}")
 
-    # === 匯出回測績效指標 ===
-    etf_backtest_df = pd.DataFrame(summary_list)
+    print("✅ 全部 ETF 資料處理完成")
 
-    # 指定欄位輸出順序
-    desired_order = ["etf_id", "backtest_start", "backtest_end", "total_return", "cagr", "max_drawdown", "sharpe_ratio"]
-    etf_backtest_df = etf_backtest_df[
-        [col for col in desired_order if col in etf_backtest_df.columns]
-    ]
-
-    # 匯出 summary
-    if SAVE_CSV:
-        summary_csv_path = os.path.join(performance_dir, "backtesting_performance_summary.csv")
-        etf_backtest_df.to_csv(summary_csv_path, index=False)
-
-    write_etf_backtest_performance_to_db(etf_backtest_df)
-
-    # ✅ 任務完成後清除 output 資料夾
-    if not SAVE_CSV:
-        shutil.rmtree("crawler/output", ignore_errors=True)
-
-    print("✅ 技術指標與績效分析完成")

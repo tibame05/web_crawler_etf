@@ -177,7 +177,7 @@ pipenv install -e .
 **☑️ 如需手動新增特定套件（例如 `yfinance`）：**
 
 ```bash
-pipenv install yfinance==0.2.63
+pipenv install yfinance==0.2.65
 ```
 
 ### 4️⃣ 同步 Pipfile.lock（團隊協作用）

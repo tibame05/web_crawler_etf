@@ -8,7 +8,7 @@ flask = "==2.3.3"
 crawler = {editable = true, path = "."}
 setuptools = "*"
 pandas = "*"
-yfinance = "==0.2.63"
+yfinance = "==0.2.65"
 mplfinance = "==0.12.9b7"
 pandas_ta = "*"
 celery = "==5.5.0"

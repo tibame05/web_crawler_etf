@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "5029f406d18720dd1599792f286924361eb9fe0afd0f97a4623e50dbb52806dd"
+            "sha256": "37263e6a166455d612814efb27f968ca85cac62534214ab2f7839215e5b074b0"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -2561,11 +2561,11 @@
         },
         "yfinance": {
             "hashes": [
-                "sha256:6b1becc0d442755b94ea6aee3e7ee1c5248a24e21b64d576d1f87ac8bff30279",
-                "sha256:f51af658004682332321301a79e6c0e40af4f6209a9306b917b52c9f4e43a3ed"
+                "sha256:3d465e58c49be9d61f9862829de3e00bef6b623809f32f4efb5197b62fc60485",
+                "sha256:7be13abb0d80a17230bf798e9c6a324fa2bef0846684a6d4f7fa2abd21938963"
             ],
             "index": "pypi",
-            "version": "==0.2.63"
+            "version": "==0.2.65"
         },
         "zipp": {
             "hashes": [

@@ -13,7 +13,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.mysql import (
-    insert  # 專用於 MySQL 的 insert 語法，可支援 on_duplicate_key_update
+    insert,  # 專用於 MySQL 的 insert 語法，可支援 on_duplicate_key_update
 )
 
 from database.config import MYSQL_ACCOUNT, MYSQL_HOST, MYSQL_PASSWORD, MYSQL_PORT

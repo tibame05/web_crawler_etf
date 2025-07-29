@@ -186,7 +186,7 @@ pipenv install -e .
 **☑️ 如需手動新增特定套件（例如 `yfinance`）：**
 
 ```bash
-pipenv install yfinance==0.2.63
+pipenv install yfinance==0.2.65
 ```
 
 ### 4️⃣ 同步 Pipfile.lock（團隊協作用）
@@ -280,6 +280,12 @@ RABBITMQ_HOST=127.0.0.1
 DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
 ```
 
+若你的 mysql.yml 裡已定義了 image: mysql:8.0（不是你自建的 image），則這一行其實 不需要指定 DOCKER_IMAGE_VERSION 環境變數。
+
+```bash
+docker compose -f mysql.yml up -d
+```
+
 ### 🐰 5. 啟動 RabbitMQ（Docker Compose）
 
 ```bash
@@ -312,7 +318,7 @@ docker logs web-crawler-rabbitmq-1
 啟動 Celery 工人來執行佇列任務：
 
 ```bash
-pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h
+pipenv run celery -A crawler.worker worker --loglevel=info
 ```
 
 - `A crawler.worker`：指定 Celery app 的模組位置

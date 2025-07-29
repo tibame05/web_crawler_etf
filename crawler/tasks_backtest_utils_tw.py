@@ -8,7 +8,7 @@ from crawler.worker import app
 
 # 🎯 任務 1：計算各項技術指標（RSI, MA, MACD, KD）
 @app.task()
-def calculate_indicators(df):
+def calculate_indicators(df) -> pd.DataFrame:
     """
     對傳入的股價資料 DataFrame 計算技術分析指標，並回傳含技術指標的 DataFrame。
     指標包含：
@@ -17,9 +17,11 @@ def calculate_indicators(df):
     - MACD（快線、慢線、柱狀圖）
     - KD 隨機指標（%K, %D）
     """
-
-    df = df.copy()
-
+    # 基本防呆
+    required_cols = {"close", "high", "low", "adj_close"}
+    if not required_cols.issubset(df.columns):
+        raise ValueError(f"缺少必要欄位：{required_cols - set(df.columns)}")
+    
     # RSI (14) (相對強弱指標)
     df["rsi"] = ta.rsi(df["close"], length=14)
 
@@ -46,7 +48,7 @@ def calculate_indicators(df):
 
 # 🎯 任務 2：計算策略績效評估指標
 @app.task()
-def evaluate_performance(df):
+def evaluate_performance(df) -> pd.DataFrame:
     """
     根據含 Adj_Close 的股價資料，計算回測績效指標並以 dict 回傳：
     - 總報酬率（Total Return）
@@ -54,6 +56,13 @@ def evaluate_performance(df):
     - 最大回撤（Max Drawdown）
     - 夏普比率（Sharpe Ratio）
     """
+            
+    # 過濾無效資料
+    df = df.dropna(subset=["adj_close", "daily_return", "cumulative_return"])
+    if df.empty:
+        print("⚠️ 有欄位但值幾乎全為 NaN")
+        return None
+
     # 基本防呆
     if df is None or df.empty or "adj_close" not in df.columns:
         return None

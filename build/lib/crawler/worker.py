@@ -25,5 +25,5 @@ app = Celery(
     # pyamqp://user:password@127.0.0.1:5672/
     # 帳號密碼都是 worker
     broker=f"pyamqp://{WORKER_ACCOUNT}:{WORKER_PASSWORD}@{RABBITMQ_HOST}:{RABBITMQ_PORT}/",
-
+    backend="rpc://"
 )
