@@ -174,4 +174,4 @@ def backtest_utils_us(url):
 
     write_etf_backtest_results_to_db(summary_df)
 
-    return summary_df
+    # return summary_df

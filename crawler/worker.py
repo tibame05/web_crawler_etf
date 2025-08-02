@@ -27,3 +27,7 @@ app = Celery(
     broker=f"pyamqp://{WORKER_ACCOUNT}:{WORKER_PASSWORD}@{RABBITMQ_HOST}:{RABBITMQ_PORT}/",
     backend="rpc://"
 )
+
+# app.conf.task_serializer = "pickle"
+# app.conf.result_serializer = "pickle"
+# app.conf.accept_content = ["json", "pickle"]

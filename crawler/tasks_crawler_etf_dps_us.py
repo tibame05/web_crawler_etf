@@ -72,4 +72,4 @@ def crawler_etf_dps_us(url):
 
     write_etf_dividend_to_db(dividends_df)
 
-    return dividends_df
+    # return dividends_df

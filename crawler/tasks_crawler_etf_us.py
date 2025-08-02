@@ -85,4 +85,4 @@ def crawler_etf_us(url):
         columns_order = ['etf_id', 'date', 'adj_close','close','high', 'low', 'open','volume']
         df = df[columns_order]
 
-    return df
+    # return df

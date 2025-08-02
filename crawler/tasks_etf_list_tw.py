@@ -5,15 +5,21 @@ import pandas as pd
 import os
 
 from crawler.worker import app
+from database.main import write_etfs_to_db
+
 
 @app.task()
-def scrape_etf_list(output_path="crawler/output/output_etf_number/etf_list.csv", save_csv: bool = False) -> pd.DataFrame:
+def scrape_etf_list(
+    output_path="crawler/output/output_etf_number/etf_list.csv", save_csv: bool = False
+):
     """
     從 Yahoo 財經抓取台灣 ETF 名稱與代碼，並儲存成 TSV 檔案。
 
     參數：
         output_path (str): 儲存檔案的路徑，預設為 output/output_etf_number/etf_list.csv
     """
+
+    print("開始爬取台灣 ETF 名單...")
 
     url = "https://tw.stock.yahoo.com/tw-etf"
     resp = requests.get(url)
@@ -46,4 +52,7 @@ def scrape_etf_list(output_path="crawler/output/output_etf_number/etf_list.csv",
         df.to_csv(output_path, sep="\t", encoding="utf-8", index=False)
         print(f"已儲存 ETF 名單至：{output_path}")
 
-    return df
+    write_etfs_to_db(df)
+    print("✅ ETF 清單已儲存到資料庫")
+
+    return df.to_dict(orient="records")

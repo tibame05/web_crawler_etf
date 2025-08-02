@@ -13,8 +13,8 @@ from crawler.worker import app
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
 def etf_list_us(url):
+    print("開始爬取美國 ETF 名單...")
 
-    
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--disable-gpu")
@@ -50,6 +50,8 @@ def etf_list_us(url):
 
     df = pd.DataFrame(etf_data, columns=["etf_id", "etf_name", "region", "currency"])
 
+    print(f"etf_List_us: {df.head()}")
+
     write_etfs_to_db(df)
 
-    return df
+    # return df
