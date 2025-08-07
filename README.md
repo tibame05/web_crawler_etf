@@ -216,6 +216,7 @@ docker build -f Dockerfile -t joycehsu65/web_crawler:0.0.1 .
 ```
 
 - ⚠️ 這裡的`joycehsu65`要換成自己的 Docker name
+- docker build -f Dockerfile -t {docker hub 名稱}/{image 名稱}:{版本號} .
 
 ### 檢查建立的image
 
@@ -223,11 +224,13 @@ docker build -f Dockerfile -t joycehsu65/web_crawler:0.0.1 .
 docker images
 ```
 
-### 上傳 Image
+### 上傳 Image 到 docker hub
 
 ```bash
 docker push joycehsu65/web_crawler:0.0.1
 ```
+
+- docker push {docker hub 名稱}/{image 名稱}:{版本號}
 
 ### 刪除 docker image
 
@@ -235,21 +238,27 @@ docker push joycehsu65/web_crawler:0.0.1
 docker rmi joycehsu65/web_crawler:0.0.1
 ```
 
+- docker rmi {docker hub 名稱}/{image 名稱}:{版本號}
+
 ---
 
 ## 🧨 部署 RabbitMQ + Celery 任務系統
 
-### 🧱 1. 建立 Docker Network（一次即可）
+### 1. 建立 Docker Network（僅需一次）
 
 ```bash
 docker network create etf_lib_network
 ```
+
+- docker network create {network 名稱}
 
 ### 2. 建立 MySQL 的 Volume（僅需一次）
 
 ```bash
 docker volume create mysql
 ```
+
+- docker volume create {volume 名稱}
 
 ### ⚙️ 3. 設定 `.env` 環境變數（僅需一次）
 
@@ -259,19 +268,13 @@ docker volume create mysql
 ENV=DOCKER python3 genenv.py
 ```
 
-確認 `.env` 中包含：
-
-```bash
-RABBITMQ_HOST=127.0.0.1
-```
-
 ### 4. 啟動 MySQL（Docker Compose）
 
 ```bash
 DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
 ```
 
-### 🐰 5. 啟動 RabbitMQ（Docker Compose）
+### 🐰 5. 啟動 RabbitMQ 與 flower（Docker Compose）
 
 ```bash
 docker compose -f rabbitmq-network.yml up -d
@@ -318,6 +321,13 @@ pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q tw
 pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q us
 ```
 
+### 7.2 啟動 worker (Docker Compose)
+```bash
+docker compose -f worker-network.yml up -d
+```
+
+- worker-network.yml 中可以設定多個 worker services
+
 
 ### 🚀 8. 發送任務（Producer）
 
@@ -329,7 +339,13 @@ pipenv run python crawler/producer_main_us.py
 ```
 
 > 任務將預設加入名為 celery 的佇列。
-> 
+
+### 8.1 啟動 producer (Docker Compose)
+```bash
+docker compose -f producer-network.yml up -d
+```
+
+- producer-network.yml 中可以設定多個 producer services
 
 ### 🖥️ 9. Flower：監控任務狀態（Web UI）
 
@@ -345,6 +361,12 @@ Flower 提供 Celery 任務的監控介面，可透過瀏覽器查看：
 
 ```bash
 docker compose -f rabbitmq-network.yml down
+```
+
+### ❌ 11. 關閉 container
+
+```bash
+docker compose -f {yml檔案} down
 ```
 
 ## 📁 資料表總覽
