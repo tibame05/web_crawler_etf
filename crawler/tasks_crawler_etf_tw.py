@@ -6,7 +6,7 @@ from crawler.worker import app
 from database.main import write_etf_dividend_to_db
 
 @app.task()
-def crawler_etf_daily_price(
+def fetch_tw_etf_daily_price(
     ticker: str, start_date: str = "2015-01-01", end_date: str = None
 ):
     """
@@ -24,30 +24,30 @@ def crawler_etf_daily_price(
         end_date = pd.Timestamp.today().strftime('%Y-%m-%d') # 結束日期為今天
 
     # 抓取歷史價格資料
-    df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=False)
+    price_dataframe = yf.download(ticker, start=start_date, end=end_date, auto_adjust=False)
 
-    if df.empty or "Volume" not in df:
+    if price_dataframe.empty or "Volume" not in price_dataframe:
         print(f"⚠️ {ticker} 沒有價格資料")
         return {}  # 若無資料則跳過該 ETF
 
     # 資料處理：去除成交量為 0 的列，並用前值補齊缺值
-    df = df[df["Volume"] > 0].ffill()
-    df.rename(columns={"Adj Close": "Adj_Close"}, inplace=True)
+    price_dataframe = price_dataframe[price_dataframe["Volume"] > 0].ffill()
+    price_dataframe.rename(columns={"Adj Close": "Adj_Close"}, inplace=True)
 
     # 處理表頭問題（如果多層表頭）
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.droplevel(1)
+    if isinstance(price_dataframe.columns, pd.MultiIndex):
+        price_dataframe.columns = price_dataframe.columns.droplevel(1)
 
-    df.reset_index(inplace=True)
-    df.insert(0, "etf_id", ticker)
+    price_dataframe.reset_index(inplace=True)
+    price_dataframe.insert(0, "etf_id", ticker)
 
     # 將所有欄位名稱轉為小寫
-    df.columns = df.columns.str.lower()
+    price_dataframe.columns = price_dataframe.columns.str.lower()
 
-    return df.to_dict(orient="records")
+    return price_dataframe.to_dict(orient="records")
 
 @app.task()
-def crawler_etf_dividend(ticker: str):
+def fetch_tw_etf_dividends(ticker: str):
     """
     根據傳入的 ETF DataFrame 抓取單一 ETF 配息資料。
 
@@ -60,26 +60,26 @@ def crawler_etf_dividend(ticker: str):
 
     # 逐一處理每一檔 ETF
     # 抓取配息資料
-    dividends = yf.Ticker(ticker).dividends
-    if dividends.empty:
+    dividends_series = yf.Ticker(ticker).dividends
+    if dividends_series.empty:
         return
 
-    df = dividends.reset_index()
-    df.columns = ["date", "dividend_per_unit"]    # 調整欄位名稱
+    dividend_dataframe = dividends_series.reset_index()
+    dividend_dataframe.columns = ["date", "dividend_per_unit"]    # 調整欄位名稱
     
     # 將日期轉為 "YYYY-MM-DD" 格式（去掉時間與時區）
-    df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+    dividend_dataframe["date"] = dividend_dataframe["date"].dt.strftime("%Y-%m-%d")
 
     # 新增欄位：etf_id 和 currency
-    df.insert(0, "etf_id", ticker)
-    df["currency"] = "TWD"
+    dividend_dataframe.insert(0, "etf_id", ticker)
+    dividend_dataframe["currency"] = "TWD"
 
-    df_dividend = df[["etf_id", "date", "dividend_per_unit", "currency"]]
+    dividend_output_dataframe = dividend_dataframe[["etf_id", "date", "dividend_per_unit", "currency"]]
 
-    if not df_dividend.empty:
-        write_etf_dividend_to_db(df_dividend)
+    if not dividend_output_dataframe.empty:
+        write_etf_dividend_to_db(dividend_output_dataframe)
         print(f"✅ {ticker} 配息資料已儲存")
     else:
         print(f"⚠️ 無配息資料：{ticker}")
 
-    # return df_dividend.to_dict(orient="records")
+    # return dividend_output_dataframe.to_dict(orient="records")
