@@ -1,7 +1,8 @@
 from crawler.tasks_etf_list_us import etf_list_us  
 from crawler.tasks_crawler_etf_us import crawler_etf_us
 from crawler.tasks_backtest_utils_us import backtest_utils_us    
-from crawler.tasks_crawler_etf_dps_us import crawler_etf_dps_us      
+from crawler.tasks_crawler_etf_dps_us import crawler_etf_dps_us    
+from crawler import logger  # 使用自訂的 logger
 
 
 if __name__ == "__main__":

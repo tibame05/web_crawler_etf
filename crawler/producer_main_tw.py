@@ -9,7 +9,7 @@ from crawler.tasks_backtest_utils_tw import (
     calculate_indicators,
     evaluate_performance,
 )  # 匯入技術指標與績效分析的函式
-
+from crawler import logger  # 使用自訂的 logger
 
 if __name__ == "__main__":
     # 控制是否要存 CSV
