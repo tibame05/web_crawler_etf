@@ -4,7 +4,6 @@ import pandas as pd
 from database.main import write_etfs_to_db
 from crawler.worker import app
 
-
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
 def etf_list_us(crawler_url):
@@ -32,4 +31,4 @@ def etf_list_us(crawler_url):
     # 將資料放入 DataFrame
     etf_list_df = pd.DataFrame(etf_codes, columns=["etf_id", "etf_name", "region", "currency"])
     write_etfs_to_db(etf_list_df)
-
+    return etf_list_df.to_dict(orient="records")
