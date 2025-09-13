@@ -5,7 +5,8 @@ from sqlalchemy import (
     Column,
     ForeignKey,
     Date,
-    Float,
+    DateTime,
+    INT,
     VARCHAR,
     DECIMAL,
     BIGINT,
@@ -52,69 +53,77 @@ engine = create_engine(
     pool_pre_ping=True,  # 連線前先 ping 一下，確保連線有效
 )
 
-# 建立 etfs、etf_daily_price 資料表（如果不存在）
 metadata = MetaData()
 # ETF 基本資料表
 etfs_table = Table(
     "etfs",
     metadata,
-    Column("etf_id", VARCHAR(20), primary_key=True),  # ETF 代碼
-    Column("etf_name", VARCHAR(100)),  # ETF 名稱
-    Column("region", VARCHAR(10)),  # 地區
-    Column("currency", VARCHAR(10)),  # 幣別
+    Column("etf_id", VARCHAR(20), primary_key=True),    # ETF 代碼
+    Column("etf_name", VARCHAR(100)),                   # ETF 名稱
+    Column("region", VARCHAR(10)),                      # 市場區域（台/美）
+    Column("currency", VARCHAR(10)),                    # 交易幣別
+    Column("expense_ratio", DECIMAL(6, 4)),             # 管理費
+    Column("inception_date", Date),                     # 成立日
 )
 
 # ETF 每日價格資料表
-etf_daily_price_table = Table(
-    "etf_daily_price",
+etf_daily_prices_table = Table(
+    "etf_daily_prices",
     metadata,
-    Column(
-        "etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True
-    ),  # ETF 代碼
-    Column("date", Date, primary_key=True),  # 日期
-    Column("adj_close", DECIMAL(10, 4)),  # 調整後收盤價
-    Column("close", DECIMAL(10, 4)),  # 收盤價
-    Column("high", DECIMAL(10, 4)),  # 最高價
-    Column("low", DECIMAL(10, 4)),  # 最低價
-    Column("open", DECIMAL(10, 4)),  # 開盤價
-    Column("volume", BIGINT),  # 成交量
-    Column("rsi", Float),  # 相對強弱指標
-    Column("ma5", Float),  # 5 日移動平均
-    Column("ma20", Float),  # 20 日移動平均
-    Column("macd_line", Float),  # MACD 線
-    Column("macd_signal", Float),  # MACD 信號線
-    Column("macd_hist", Float),  # MACD 柱狀圖
-    Column("pct_k", Float),  # 隨機指標 K 值
-    Column("pct_d", Float),  # 隨機指標 D 值
-    Column("daily_return", DECIMAL(8, 6)),  # 日報酬率
-    Column("cumulative_return", DECIMAL(10, 6)),  # 累積報酬率
+    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
+    Column("trade_date", Date, primary_key=True),   # 交易日
+    Column("open", DECIMAL(18, 6)),                 # 開盤價
+    Column("high", DECIMAL(18, 6)),                 # 最高價
+    Column("low", DECIMAL(18, 6)),                  # 最低價
+    Column("close", DECIMAL(18, 6)),                # 收盤價
+    Column("adj_close", DECIMAL(18, 6)),            # 調整後收盤價
+    Column("volume", BIGINT),                       # 成交量
 )
 
 # ETF 配息資料表
-etf_dividend_table = Table(
-    "etf_dividend",
+etf_dividends_table = Table(
+    "etf_dividends",
     metadata,
-    Column(
-        "etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True
-    ),  # ETF 代碼
-    Column("date", Date, primary_key=True),  # 除息日
-    Column("dividend_per_unit", DECIMAL(10, 4)),  # 每單位配息金額
-    Column("currency", VARCHAR(10)),  # 幣別
+    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
+    Column("ex_date", Date, primary_key=True),      # 除息日
+    Column("dividend_per_unit", DECIMAL(10, 4)),    # 每單位配發現金股利
+    Column("currency", VARCHAR(10)),                # 股利幣別
+)
+
+# ETF 含息累積指數資料表
+etf_tris_table = Table(
+    "etf_tris",
+    metadata,
+    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
+    Column("tri_date", Date, primary_key=True),     # TRI 日期
+    Column("tri", DECIMAL(20, 8)),                  # 含息累積指數
+    Column("currency", VARCHAR(10)),                # 幣別
 )
 
 # ETF 回測結果資料表
-etf_backtest_results_table = Table(
-    "etf_backtest_results",
+etf_backtests_table = Table(
+    "etf_backtests",
     metadata,
-    Column(
-        "etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True
-    ),  # ETF 代碼
-    Column("backtest_start", Date, nullable=False),  # 回測開始日期
-    Column("backtest_end", Date, nullable=False),  # 回測結束日期
-    Column("total_return", DECIMAL(8, 6)),  # 總報酬率
-    Column("cagr", DECIMAL(8, 6)),  # 年化報酬率
-    Column("max_drawdown", DECIMAL(8, 6)),  # 最大回撤
-    Column("sharpe_ratio", DECIMAL(8, 6)),  # 夏普比率
+    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
+    Column("start_date", Date, primary_key=True),   # 回測起始日
+    Column("end_date", Date, nullable=False),       # 回測結束日
+    Column("cagr", DECIMAL(8, 6)),                  # 年化報酬率
+    Column("sharpe_ratio", DECIMAL(8, 6)),          # 夏普比率
+    Column("max_drawdown", DECIMAL(8, 6)),          # 最大回撤
+    Column("total_return", DECIMAL(8, 6)),          # 總報酬率
+    Column("volatility", DECIMAL(8, 6)),            # 年化波動
+)
+
+# ETL 同步狀態資料表
+etl_sync_status_table = Table(
+    "etl_sync_status",
+    metadata,
+    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
+    Column("last_price_date", Date),                # 最後價格日期
+    Column("price_count", INT),                     # 價格筆數
+    Column("last_dividend_ex_date", Date),          # 最後除息日
+    Column("dividend_count", INT),                  # 配息筆數
+    Column("updated_at", DateTime),                 # 更新時間
 )
 
 # 如果資料表不存在，則建立它們
@@ -195,11 +204,11 @@ def write_etf_daily_price_to_db(etf_daily_price_df: pd.DataFrame):
         None
     """
 
-    primary_keys = ["etf_id", "date"]
+    primary_keys = ["etf_id", "trade_date"]
 
     etf_daily_price_df = filter_and_replace_nan(etf_daily_price_df, primary_keys)
 
-    upsert_dataframe_to_db(etf_daily_price_df, etf_daily_price_table, primary_keys)
+    upsert_dataframe_to_db(etf_daily_price_df, etf_daily_prices_table, primary_keys)
 
 
 def write_etf_dividend_to_db(etf_dividend_df: pd.DataFrame):
@@ -214,11 +223,30 @@ def write_etf_dividend_to_db(etf_dividend_df: pd.DataFrame):
         None
     """
 
-    primary_keys = ["etf_id", "date"]
+    primary_keys = ["etf_id", "ex_date"]
 
     etf_dividend_df = filter_and_replace_nan(etf_dividend_df, primary_keys)
 
-    upsert_dataframe_to_db(etf_dividend_df, etf_dividend_table, primary_keys)
+    upsert_dataframe_to_db(etf_dividend_df, etf_dividends_table, primary_keys)
+
+
+def write_etf_tris_to_db(etf_tris_df: pd.DataFrame):
+    """
+    將 ETF 含息累積指數資料寫入資料庫，若主鍵已存在則更新資料。
+
+    parameters:
+        etf_tris_df (pd.DataFrame):
+            ETF 含息累積指數資料。每筆資料應包含主鍵欄位（etf_id, tri_date）與含息累積指數等其他欄位。
+
+    returns:
+        None
+    """
+
+    primary_keys = ["etf_id", "tri_date"]
+
+    etf_tris_df = filter_and_replace_nan(etf_tris_df, primary_keys)
+
+    upsert_dataframe_to_db(etf_tris_df, etf_tris_table, primary_keys)
 
 
 def write_etf_backtest_results_to_db(etf_backtest_df: pd.DataFrame):
@@ -234,8 +262,28 @@ def write_etf_backtest_results_to_db(etf_backtest_df: pd.DataFrame):
         None
     """
 
-    primary_keys = ["etf_id"]
+    primary_keys = ["etf_id", "start_date"]
 
     etf_backtest_df = filter_and_replace_nan(etf_backtest_df, primary_keys)
 
-    upsert_dataframe_to_db(etf_backtest_df, etf_backtest_results_table, primary_keys)
+    upsert_dataframe_to_db(etf_backtest_df, etf_backtests_table, primary_keys)
+
+
+def write_etl_sync_status_to_db(etl_sync_status_df: pd.DataFrame):
+    """
+    將 ETL 同步狀態資料寫入資料庫，若主鍵已存在則更新資料。
+
+    parameters:
+        etl_sync_status_df (pd.DataFrame):
+            ETL 同步狀態資料。每一列應包含主鍵欄位（如 etf_id）及其他欲寫入或更新的欄位。
+            欄位名稱需對應資料表 `etl_sync_status` 的欄位定義。
+
+    returns:
+        None
+    """
+
+    primary_keys = ["etf_id"]
+
+    etl_sync_status_df = filter_and_replace_nan(etl_sync_status_df, primary_keys)
+
+    upsert_dataframe_to_db(etl_sync_status_df, etl_sync_status_table, primary_keys)
