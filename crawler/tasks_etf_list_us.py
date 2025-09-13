@@ -1,39 +1,24 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import requests
 from bs4 import BeautifulSoup
-
 import pandas as pd
-from database.main import write_etfs_to_db
+import yfinance as yf
+from datetime import datetime
 
+from database.main import write_etfs_to_db
 from crawler.worker import app
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
-def etf_list_us(url):
-    print("開始爬取美國 ETF 名單...")
+def etf_list_us(crawler_url):
+    # 發送 HTTP 請求獲取網站內容
+    response = requests.get(crawler_url)
+    response.encoding = 'utf-8'  # 確保中文編碼正確
 
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
+    # 解析 HTML
+    soup = BeautifulSoup(response.text, 'html.parser')
 
-    driver = webdriver.Chrome(options=options)
-    driver.get(url)
-
-    # 等待表格載入
-    WebDriverWait(driver, 15).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr"))
-    )
-
-    html = driver.page_source
-    soup = BeautifulSoup(html, "html.parser")
-
-    etf_data = []
-
-    # 逐列抓取
+    etf_codes = []
+    # 解析表格數據
     rows = soup.select("table tbody tr")
     for row in rows:
         code_tag = row.select_one('a[href^="/symbols/"]')
@@ -44,14 +29,23 @@ def etf_list_us(url):
             name = name_tag.get_text(strip=True)
             region = "US"  # 手動補上國別
             currency = "USD"  # 手動補上幣別
-            etf_data.append((code, name,region,currency))
+            try:
+                etf = yf.Ticker(code)
+                info = etf.info
+                expense_ratio = info.get("netExpenseRatio", None)
+                inception_ts = info.get("fundInceptionDate", None)
+                inception_date = (
+                datetime.fromtimestamp(inception_ts).strftime("%Y-%m-%d") if inception_ts else None
+                        )
+            except Exception as e:
+                        print(f"查詢 {code} 時發生錯誤: {e}")
+                        expense_ratio = None
+                        inception_date = None
 
-    driver.quit()
-
-    df = pd.DataFrame(etf_data, columns=["etf_id", "etf_name", "region", "currency"])
-
-    print(f"etf_List_us: {df.head()}")
-
-    write_etfs_to_db(df)
-
-    # return df
+            etf_codes.append((code, name, region, currency, expense_ratio, inception_date))
+            
+    # 將資料放入 DataFrame
+    etf_list_df = pd.DataFrame(etf_codes, columns=["etf_id", "etf_name", "region", "currency",
+                                               "expense_ratio","inception_date"])
+    write_etfs_to_db(etf_list_df)
+    return etf_list_df.to_dict(orient="records")
