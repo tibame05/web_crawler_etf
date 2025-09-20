@@ -1,74 +1,27 @@
 import pandas as pd
-import numpy as np
-import pandas_ta as ta
-
 import yfinance as yf
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup
-import time
-
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-
+import pandas_ta as ta
+import numpy as np
 from crawler.worker import app
-from database.main import write_etf_backtest_results_to_db, write_etf_daily_price_to_db
+from database.main import write_etf_backtest_results_to_db
 
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
-def backtest_utils_us(url):
-    
+def backtest_utils_us(etf_list_df):
 
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
+    tickers = [etf["etf_id"] for etf in etf_list_df]    
 
-    driver = webdriver.Chrome(options=options)
-    driver.get(url)
-
-    # 等待表格載入
-    WebDriverWait(driver, 15).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr"))
-    )
-
-    html = driver.page_source
-    soup = BeautifulSoup(html, "html.parser")
-
-    etf_data = []
-
-    # 逐列抓取
-    rows = soup.select("table tbody tr")
-    for row in rows:
-        code_tag = row.select_one('a[href^="/symbols/"]')
-        name_tag = row.select_one("sup")
-        
-        if code_tag and name_tag:
-            code = code_tag.get_text(strip=True)
-            name = name_tag.get_text(strip=True)
-            etf_data.append((code, name))
-
-    driver.quit()
-
-    etf_codes = [code for code, _ in etf_data]
-        
     start_date = '2015-05-01'
     end_date = pd.Timestamp.today().strftime('%Y-%m-%d')
 
     failed_tickers = []
-    summary_df = [] 
-    for r in etf_codes:
+    summary_df = []
+    for r in tickers:
         print(f"正在下載：{r}")
         try:
             df = yf.download(r, start=start_date, end=end_date, auto_adjust=False)
             df = df[df["Volume"] > 0].ffill()
-
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.droplevel(1)
-            df.columns.name = None
-
             df.reset_index(inplace=True)
             df.rename(columns={
                 "Date": "date",
@@ -85,8 +38,8 @@ def backtest_utils_us(url):
             print(f"[⚠️ 錯誤] {r} 下載失敗：{e}")
             failed_tickers.append(r)
             continue
+        df.columns = df.columns.droplevel(1)  # 把 'Price' 這層拿掉
 
-        
         # RSI (14) (相對強弱指標)
         df["rsi"] = ta.rsi(df["close"], length=14)
 
@@ -115,14 +68,7 @@ def backtest_utils_us(url):
                         'rsi', 'ma5', 'ma20', 'macd_line', 'macd_signal', 'macd_hist',
                         'pct_k', 'pct_d', 'daily_return', 'cumulative_return']
         df = df[columns_order]
-
-        write_etf_daily_price_to_db(df)
-
-        # 儲存技術指標結果
-        print("開始 2️⃣ 進行技術指標計算與績效分析")
-
-
-
+    
         # 確保 date 欄位為 datetime
         if not pd.api.types.is_datetime64_any_dtype(df["date"]):
             df["date"] = pd.to_datetime(df["date"])
@@ -172,6 +118,5 @@ def backtest_utils_us(url):
     desired_order = ["etf_id", "backtest_start", "backtest_end", "total_return", "cagr", "max_drawdown", "sharpe_ratio"]
     summary_df = summary_df[desired_order]
 
-    write_etf_backtest_results_to_db(summary_df)
-
-    # return summary_df
+    etf_backtest_df = pd.DataFrame(summary_df)
+    write_etf_backtest_results_to_db(etf_backtest_df)
