@@ -1,12 +1,6 @@
 # crawler/tasks_etf_list_tw.py
 import requests
-import pandas as pd
-import yfinance as yf
-import os
-from datetime import datetime, timezone
 from bs4 import BeautifulSoup as bs
-import numpy as np
-import time
 
 from database.main import write_etfs_to_db
 from crawler.worker import app
@@ -14,16 +8,19 @@ from crawler import logger
 
 
 @app.task()
-def fetch_tw_etf_list():
+def fetch_tw_etf_list(crawler_url: str = "https://tw.stock.yahoo.com/tw-etf"):
     """
-    從 Yahoo 財經抓取台灣 ETF 清單，並用 yfinance 補充：
-      - expense_ratio（小數；0.005 代表 0.5%）
-      - inception_date（YYYY-MM-DD）
-    若判斷下市（近一個月 history 為空），直接排除，不寫入 DB。   
+    從 Yahoo 財經抓取台灣 ETF 清單，並整理為 list of dict：
+      - etf_id:   ETF 代號（大寫，結尾為 .TW 或 .TWO）
+      - etf_name: ETF 名稱
+      - region:   固定 "TW"
+      - currency: 固定 "TWD"
+    若 etf_id 不符合格式，則略過。
+    回傳:
+      list of dict，可直接給 align_step0 使用。
     """
     logger.info("開始爬取台灣 ETF 名單...")
 
-    crawler_url = "https://tw.stock.yahoo.com/tw-etf"
     response = requests.get(crawler_url)
     soup = bs.BeautifulSoup(response.text, "html.parser")
 
@@ -37,71 +34,39 @@ def fetch_tw_etf_list():
         etf_name_text = etf_name_div.text.strip() if etf_name_div else None
         etf_id_text = etf_id_span.text.strip() if etf_id_span else None
 
+        # --- 驗證與格式化 etf_id ---
         if not etf_id_text:
             continue
-
-        expense_ratio = None
-        inception_date = None
-
-        try:
-            # etf_id 格式防呆處理
-            yf_symbol = f"{etf_id_text}.TW" if "." not in etf_id_text else etf_id_text
-            ticker = yf.Ticker(yf_symbol)
-
-            # 取得基本資訊
-            try:
-                info = ticker.get_info()
-            except Exception:
-                info = getattr(ticker, "info", {}) or {}
-
-            # 📌 費用率優先順序
-            exp = (
-                info.get("netExpenseRatio") # 投資人實際支付的淨費用率
-                or info.get("annualReportExpenseRatio") # 年報披露的費用率
-                or info.get("expenseRatio") # 泛用欄位（最後 fallback）
-            )
-            if exp is not None:
-                try:
-                    exp = float(exp)
-                    if exp > 1.0:
-                        exp /= 100.0
-                    if exp >= 0:
-                        expense_ratio = round(exp, 6)
-                except Exception:
-                    expense_ratio = None
-
-            # 成立日
-            inc_raw = info.get("fundInceptionDate", None) or info.get("firstTradeDateEpochUtc", None)
-            if inc_raw is not None and not (isinstance(inc_raw, float) and np.isnan(inc_raw)):
-                try:
-                    ts = float(inc_raw)
-                    inception_date = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
-                except Exception:
-                    inception_date = str(inc_raw)
-
-            # 📌 判斷是否下市
-            hist = ticker.history(period="1mo", interval="1d")
-            if hist.empty:
-                logger.warning(f"台股 ETF {etf_id_text} 判斷為下市，已跳過")
-                continue
-
-        except Exception as e:
-            logger.error(f"[TW] yfinance 查詢 {etf_id_text} 失敗：{e}")
-            continue
     
+        etf_id_text = str(etf_id_text).upper().strip()
+
+        # 確認尾綴必須是 ".TW" 或 ".TWO"
+        if not (etf_id_text.endswith(".TW") or etf_id_text.endswith(".TWO")):
+            logger.warning("忽略不符合格式的 ETF 代號: %s", etf_id_text)
+            continue
+
+        # 前綴為數字與英文字母組合，例如 0050、00715B
+        prefix = etf_id_text.rsplit(".", 1)[0]
+        if not prefix.isalnum():  # 前綴必須是數字或字母
+            logger.warning("忽略前綴不是數字和字母的 ETF 代號: %s", etf_id_text)
+            continue
+
         etf_records.append({
             "etf_id": etf_id_text,
             "etf_name": etf_name_text,
             "region": "TW",
             "currency": "TWD",
-            "expense_ratio": expense_ratio,
-            "inception_date": inception_date,
         })
 
-        time.sleep(0.3)  # 避免被 yfinance 擋掉
+    # --- 直接用 list of dict 寫入 DB ---
+    if etf_records:
+        try:
+            write_etfs_to_db(etf_records)
+            logger.info("✅ 台股 ETF 已寫入資料庫（共 %d 筆）", len(etf_records))
+        except Exception as e:
+            logger.exception("❌ 台股 ETF 寫入資料庫失敗: %s", e)
+    else:
+        logger.warning("⚠️ 未取得任何合法的台股 ETF 記錄")
 
-    etf_list_dataframe = pd.DataFrame(etf_records)
-    write_etfs_to_db(etf_list_dataframe)
-    logger.info("✅ 台股 ETF 已寫入資料庫（下市已過濾）")
-
-    return etf_list_dataframe.to_dict(orient="records")
+    # --- 回傳 list of dict ---
+    return etf_records
