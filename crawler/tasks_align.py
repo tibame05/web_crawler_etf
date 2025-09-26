@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Dict, Any, List, Tuple, Set
 from datetime import datetime, timezone
 import yfinance as yf
+import json
 
 from crawler import logger
 from crawler.worker import app  # 僅初始化
@@ -120,8 +121,10 @@ def align_step0(
         src_rows: 爬蟲取得的清單 (list of dict)
         use_yfinance: 是否使用 yfinance 補 slow-changing 欄位
     回傳:
-        (final_ids, report)
-        final_ids: 排除 delisted 的 etf_id 清單
+        (final_etfs_data, report)
+        final_etfs_data (List[Dict[str, str]]): 
+            排除 delisted 後，包含 'etf_id' 和 'inception_date' 的清單。
+            格式為: [{'etf_id': '...', 'inception_date': '...'}, ...]
         report: 對齊與寫入摘要資訊（log 用）
     """
     t0 = datetime.now()
@@ -183,35 +186,13 @@ def align_step0(
     else:
         logger.info("[%s][STEP0] 跳過 yfinance 補值（use_yfinance=False）", region)
 
-    # --- 清空兩張資料表（先刪後寫策略）：etl_sync_status 與 etfs ---
-    for table in ["etl_sync_status", "etfs"]:
-        try:
-            clear_table(table)
-            logger.info("[%s][STEP0] 已清空資料表：%s", region, table)
-        except Exception as e:
-            logger.exception("[%s][STEP0] 清空 %s 失敗：%s", region, table, e)
-            raise
-
-    # --- 將聯集 etf_ids_all 全數寫入 etl_sync_status（僅 etf_id；其他欄位為 None 或 0）---
-    rows_to_insert = [
-        {
-            "etf_id": eid,
-            "last_price_date": None,
-            "price_count": 0,
-            "last_dividend_ex_date": None,
-            "dividend_count": 0,
-            "last_tri_date": None,
-            "tri_count": 0,
-            "updated_at": None,
-        }
-        for eid in etf_ids_all
-    ]
-
+    # --- 僅清空 etfs 資料表（先刪後寫策略） ---
     try:
-        write_etl_sync_status_to_db(rows_to_insert)
-        logger.info("[%s][STEP0] 已批次寫入 etl_sync_status（共 %d 筆）", region, len(rows_to_insert))
+        clear_table("etfs")
+        logger.info("[%s][STEP0] 已清空資料表：etfs", region)
     except Exception as e:
-        logger.exception("[%s][STEP0] 批次寫入 etl_sync_status 失敗：%s", region, e)
+        logger.exception("[%s][STEP0] 清空 etfs 失敗：%s", region, e)
+        raise
 
     # --- 準備寫入 etfs：以「合併後的 row（爬蟲整筆覆蓋或 DB 沿用）」為基礎，套上 yfinance 補值 ---
     to_write: List[Dict[str, Any]] = []
@@ -240,11 +221,17 @@ def align_step0(
     except Exception as e:
         logger.exception("[%s][STEP0] 批次寫入 etfs 失敗：%s", region, e)
 
-    # --- 產出 final_ids：排除 yfinance 判定為 'delisted' 的 etf_id ---
-    final_ids = sorted(
-        eid for eid in etf_ids_all
-        if yf_map.get(eid, {}).get("status") != "delisted"
-    )
+    # --- 產出 final_etfs_data：排除 yfinance 判定為 'delisted' 的 etf_id，並包含 inception_date ---
+    final_ids_list: List[str] = []
+    final_etfs_data: List[Dict[str, str]] = []
+
+    for row in to_write:
+        if row.get("status") != "delisted":
+            final_ids_list.append(row["etf_id"])
+            final_etfs_data.append({
+                "etf_id": row["etf_id"],
+                "inception_date": row.get("inception_date") or "", # 確保是字串，若為 None 則給空字串
+            })
 
     # --- report 給 log 用 ---
     report = {
@@ -256,11 +243,10 @@ def align_step0(
         "intersect_count": len(intersect_ids),
         "missing_count": len(missing_ids),
         "written_count": len(to_write),
-        "final_active_count": len(final_ids),
+        "final_active_count": len(final_ids_list),
         "yfinance_used": bool(use_yfinance),
     }
 
-    import json
     logger.info("[%s][STEP0] 名單對齊報告：\n%s", region, json.dumps(report, ensure_ascii=False, indent=2))
 
-    return final_ids
+    return final_etfs_data
