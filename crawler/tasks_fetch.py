@@ -6,6 +6,7 @@ import yfinance as yf
 from crawler import logger
 from database.main import write_etf_daily_price_to_db, write_etf_dividend_to_db  
 from crawler.worker import app
+from crawler.tasks_etf_list_tw import _get_currency_from_region
 
 def _today_str() -> str:
     return pd.Timestamp.today().strftime("%Y-%m-%d")
@@ -113,15 +114,8 @@ def fetch_dividends(etf_id: str, plan: Dict[str, Any], region: str) -> Optional[
     logger.info("[FETCH][DIV] %s %s → %s", etf_id, start_str, end_str)
 
     # 判斷幣別
-    if region == 'TW':
-        currency = "TWD"
-    elif region == 'US':
-        currency = "USD"
-    else:
-        # 預設值或錯誤處理
-        currency = "UNKNOWN"
-        logger.warning("[FETCH][DIV] %s 地區 %s 無法判定幣別，設為 %s", etf_id, region, currency)
-
+    currency = _get_currency_from_region(region, etf_id)
+    
     # 抓取配息資料
     try:
         dividends_series = yf.Ticker(etf_id).dividends

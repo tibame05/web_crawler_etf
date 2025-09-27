@@ -6,9 +6,29 @@ from database.main import write_etfs_to_db
 from crawler.worker import app
 from crawler import logger
 
+def _get_currency_from_region(region: str, etf_id: str) -> str:
+    """
+    依 ETF 交易地區判斷幣別。
+
+    參數：
+        region (str): ETF 交易地區，例如 'TW' 或 'US'
+        etf_id (str): ETF 代號，用於 log 訊息
+
+    回傳：
+        str: 幣別代碼
+    """
+    if region == 'TW':
+        return "TWD"
+    elif region == 'US':
+        return "USD"
+    else:
+        # 預設值或錯誤處理
+        currency = "UNKNOWN"
+        logger.warning("[CURRENCY] %s 地區 %s 無法判定幣別，設為 %s", etf_id, region, currency)
+        return currency
 
 @app.task()
-def fetch_tw_etf_list(crawler_url: str = "https://tw.stock.yahoo.com/tw-etf"):
+def fetch_tw_etf_list(crawler_url: str = "https://tw.stock.yahoo.com/tw-etf", region: str = "TW") -> list[dict]:
     """
     從 Yahoo 財經抓取台灣 ETF 清單，並整理為 list of dict：
       - etf_id:   ETF 代號（大寫，結尾為 .TW 或 .TWO）
@@ -51,11 +71,14 @@ def fetch_tw_etf_list(crawler_url: str = "https://tw.stock.yahoo.com/tw-etf"):
             logger.warning("忽略前綴不是數字和字母的 ETF 代號: %s", etf_id_text)
             continue
 
+        # --- 判斷 region 與 currency ---
+        currency = _get_currency_from_region(region, etf_id_text)
+
         etf_records.append({
             "etf_id": etf_id_text,
             "etf_name": etf_name_text,
-            "region": "TW",
-            "currency": "TWD",
+            "region": region,
+            "currency": currency,
         })
 
     # --- 直接用 list of dict 寫入 DB ---

@@ -4,10 +4,11 @@ from bs4 import BeautifulSoup
 from database.main import write_etfs_to_db
 from crawler.worker import app
 from crawler import logger
+from crawler.tasks_etf_list_tw import _get_currency_from_region
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
 @app.task()
-def fetch_us_etf_list(crawler_url: str = "https://tw.tradingview.com/markets/etfs/funds-usa/"):
+def fetch_us_etf_list(crawler_url: str = "https://tw.tradingview.com/markets/etfs/funds-usa/", region: str = "US"):
     """
     從指定 crawler_url 抓取美國 ETF 清單，並回傳 list of dict：
       - etf_id:   ETF 代號（必須為大寫英文字母）
@@ -47,12 +48,14 @@ def fetch_us_etf_list(crawler_url: str = "https://tw.tradingview.com/markets/etf
         if not etf_id_text.isalnum():
             logger.warning("忽略不符合格式的 ETF 代號: %s", etf_id_text)
             continue
+        # --- 判斷 region 與 currency ---
+        currency = _get_currency_from_region(region, etf_id_text)
 
         etf_records.append({
             "etf_id": etf_id_text,
             "etf_name": etf_name_text,
-            "region": "US",
-            "currency": "USD",
+            "region": region,
+            "currency": currency,
         })
 
     # --- 直接用 list of dict 寫入 DB ---
