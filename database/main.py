@@ -5,140 +5,20 @@ from contextlib import contextmanager
 
 from sqlalchemy.orm import Session
 
-from sqlalchemy import (
-    MetaData,
-    Table,
-    Column,
-    ForeignKey,
-    Date,
-    DateTime,
-    INT,
-    VARCHAR,
-    DECIMAL,
-    BIGINT,
-    Enum,
-    create_engine,
-    text,
-)
+from sqlalchemy import Table, text
 from sqlalchemy.dialects.mysql import (
     insert,  # 專用於 MySQL 的 insert 語法，可支援 on_duplicate_key_update
 )
 
-from database.config import MYSQL_ACCOUNT, MYSQL_HOST, MYSQL_PASSWORD, MYSQL_PORT
-from . import SessionLocal
-
-# 建立連接到 MySQL 的資料庫引擎，不指定資料庫
-engine_no_db = create_engine(
-    f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/",
-    connect_args={"charset": "utf8mb4"},
+from database import logger, SessionLocal
+from database.models import (
+    etfs_table,
+    etf_daily_prices_table,
+    etf_dividends_table,
+    etf_tris_table,
+    etf_backtests_table,
+    etl_sync_status_table,
 )
-
-# ! 連線，建立 etf 資料庫（如果不存在）
-# with engine_no_db.connect() as conn:
-#     conn.execute(
-#         text(
-#             "CREATE DATABASE IF NOT EXISTS etf CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-#         )
-#     )
-
-with engine_no_db.connect() as conn:
-    conn.execute(
-        text(
-            "CREATE DATABASE IF NOT EXISTS etf_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-        )
-    )
-
-# ! 指定連到 etf 資料庫
-# engine = create_engine(
-#     f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/etf",
-#     # echo=True,  # 所有 SQL 指令都印出來（debug 用）
-#     pool_pre_ping=True,  # 連線前先 ping 一下，確保連線有效
-# )
-
-engine = create_engine(
-    f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/etf_test",
-    # echo=True,  # 所有 SQL 指令都印出來（debug 用）
-    pool_pre_ping=True,  # 連線前先 ping 一下，確保連線有效
-)
-
-metadata = MetaData()
-# ETF 基本資料表
-etfs_table = Table(
-    "etfs",
-    metadata,
-    Column("etf_id", VARCHAR(20), primary_key=True),  # ETF 代碼
-    Column("etf_name", VARCHAR(100)),  # ETF 名稱
-    Column("region", VARCHAR(10)),  # 市場區域（台/美）
-    Column("currency", VARCHAR(10)),  # 交易幣別
-    Column("expense_ratio", DECIMAL(6, 4)),  # 管理費
-    Column("inception_date", Date),  # 成立日
-    Column("status", Enum("ACTIVE", "DELISTED")),  # 上市狀態
-)
-
-# ETF 每日價格資料表
-etf_daily_prices_table = Table(
-    "etf_daily_prices",
-    metadata,
-    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
-    Column("trade_date", Date, primary_key=True),   # 交易日
-    Column("open", DECIMAL(18, 6)),                 # 開盤價
-    Column("high", DECIMAL(18, 6)),                 # 最高價
-    Column("low", DECIMAL(18, 6)),                  # 最低價
-    Column("close", DECIMAL(18, 6)),                # 收盤價
-    Column("adj_close", DECIMAL(18, 6)),            # 調整後收盤價
-    Column("volume", BIGINT),                       # 成交量
-)
-
-# ETF 配息資料表
-etf_dividends_table = Table(
-    "etf_dividends",
-    metadata,
-    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
-    Column("ex_date", Date, primary_key=True),      # 除息日
-    Column("dividend_per_unit", DECIMAL(10, 4)),    # 每單位配發現金股利
-    Column("currency", VARCHAR(10)),                # 股利幣別
-)
-
-# ETF 含息累積指數資料表
-etf_tris_table = Table(
-    "etf_tris",
-    metadata,
-    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
-    Column("tri_date", Date, primary_key=True),     # TRI 日期
-    Column("tri", DECIMAL(20, 8)),                  # 含息累積指數
-    Column("currency", VARCHAR(10)),                # 幣別
-)
-
-# ETF 回測結果資料表
-etf_backtests_table = Table(
-    "etf_backtests",
-    metadata,
-    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
-    Column("start_date", Date, primary_key=True),   # 回測起始日
-    Column("end_date", Date, nullable=False),       # 回測結束日
-    Column("cagr", DECIMAL(8, 6)),                  # 年化報酬率
-    Column("sharpe_ratio", DECIMAL(8, 6)),          # 夏普比率
-    Column("max_drawdown", DECIMAL(8, 6)),          # 最大回撤
-    Column("total_return", DECIMAL(8, 6)),          # 總報酬率
-    Column("volatility", DECIMAL(8, 6)),            # 年化波動
-)
-
-# ETL 同步狀態資料表
-etl_sync_status_table = Table(
-    "etl_sync_status",
-    metadata,
-    Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
-    Column("last_price_date", Date),  # 最後價格日期
-    Column("price_count", INT),  # 價格筆數
-    Column("last_dividend_ex_date", Date),  # 最後除息日
-    Column("dividend_count", INT),  # 配息筆數
-    Column("last_tri_date", Date),  # 最後 TRI 日期
-    Column("tri_count", INT),  # TRI 筆數
-    Column("updated_at", DateTime),  # 更新時間
-)
-
-# 如果資料表不存在，則建立它們
-metadata.create_all(engine)
 
 
 def _filter_and_replace_nan(
@@ -187,6 +67,7 @@ def _upsert_records_to_db(
     """
 
     if not records:
+        logger.error(f"No records to upsert for table {table.name}")
         return
 
     insert_stmt = insert(table)
@@ -198,8 +79,12 @@ def _upsert_records_to_db(
         }
     )
 
-    with get_session(session) as s:
-        s.execute(update_stmt, records)
+    try:
+        with get_session(session) as s:
+            s.execute(update_stmt, records)
+        logger.info(f"Upserted {len(records)} records into table {table.name}")
+    except Exception as e:
+        logger.error(f"Upsert to {table.name} failed: {e}", exc_info=True)
 
 
 def write_etfs_to_db(records: list[dict[str, Any]], session: Optional[Session] = None):
@@ -218,6 +103,7 @@ def write_etfs_to_db(records: list[dict[str, Any]], session: Optional[Session] =
 
     primary_keys = ["etf_id"]
     cleaned_records = _filter_and_replace_nan(records, primary_keys)
+    logger.info(f"Writing {len(cleaned_records)} ETF records to DB")
     _upsert_records_to_db(cleaned_records, etfs_table, primary_keys, session)
 
 
@@ -239,7 +125,10 @@ def write_etf_daily_price_to_db(
 
     primary_keys = ["etf_id", "trade_date"]
     cleaned_records = _filter_and_replace_nan(records, primary_keys)
-    _upsert_records_to_db(cleaned_records, etf_daily_prices_table, primary_keys, session)
+    logger.info(f"Writing {len(cleaned_records)} ETF daily price records to DB")
+    _upsert_records_to_db(
+        cleaned_records, etf_daily_prices_table, primary_keys, session
+    )
 
 
 def write_etf_dividend_to_db(
@@ -260,6 +149,7 @@ def write_etf_dividend_to_db(
 
     primary_keys = ["etf_id", "ex_date"]
     cleaned_records = _filter_and_replace_nan(records, primary_keys)
+    logger.info(f"Writing {len(cleaned_records)} ETF dividend records to DB")
     _upsert_records_to_db(cleaned_records, etf_dividends_table, primary_keys, session)
 
 
@@ -281,6 +171,7 @@ def write_etf_tris_to_db(
 
     primary_keys = ["etf_id", "tri_date"]
     cleaned_records = _filter_and_replace_nan(records, primary_keys)
+    logger.info(f"Writing {len(cleaned_records)} ETF TRI records to DB")
     _upsert_records_to_db(cleaned_records, etf_tris_table, primary_keys, session)
 
 
@@ -302,6 +193,7 @@ def write_etf_backtest_results_to_db(
 
     primary_keys = ["etf_id", "start_date"]
     cleaned_records = _filter_and_replace_nan(records, primary_keys)
+    logger.info(f"Writing {len(cleaned_records)} ETF backtest records to DB")
     _upsert_records_to_db(cleaned_records, etf_backtests_table, primary_keys, session)
 
 
@@ -323,15 +215,8 @@ def write_etl_sync_status_to_db(
 
     primary_keys = ["etf_id"]
     cleaned_records = _filter_and_replace_nan(records, primary_keys)
+    logger.info(f"Writing {len(cleaned_records)} ETL sync status records to DB")
     _upsert_records_to_db(cleaned_records, etl_sync_status_table, primary_keys, session)
-
-
-
-
-
-# ======================
-# A. STEP1 名單對齊相關
-# ======================
 
 
 def read_etfs_id(
@@ -355,20 +240,16 @@ def read_etfs_id(
         sql = """
             SELECT etf_id, region
             FROM etfs
+            WHERE status = 'ACTIVE'
         """
         if region:
-            sql += " WHERE region = :region"
+            sql += " AND region = :region"
         rows = s.execute(text(sql), {"region": region} if region else {})
 
         for r in rows:
             records.append({"etf_id": r.etf_id, "region": r.region})
 
         return records
-
-
-# ======================
-# B. STEP1 規劃／抓取
-# ======================
 
 
 def read_etl_sync_status(session: Optional[Session] = None) -> list[dict[str, Any]]:
@@ -418,11 +299,6 @@ def read_etl_sync_status(session: Optional[Session] = None) -> list[dict[str, An
                 }
             )
         return records
-
-
-# ======================
-# C. STEP2 建 TRI
-# ======================
 
 
 def read_prices_range(
@@ -524,11 +400,6 @@ def read_dividends_range(
         return records
 
 
-# ======================
-# D. 回測
-# ======================
-
-
 def read_tris_range(
     etf_id: str, start_date: str, end_date: str, session: Optional[Session] = None
 ) -> list[dict[str, Any]]:
@@ -570,7 +441,6 @@ def read_tris_range(
             )
 
         return records
-
 
 
 def _to_date_str(dt: Optional[date]) -> Optional[str]:
