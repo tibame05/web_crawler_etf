@@ -1,3 +1,6 @@
+"""
+定義 Table schema
+"""
 from sqlalchemy import (
     MetaData,
     Table,
@@ -10,40 +13,10 @@ from sqlalchemy import (
     DECIMAL,
     BIGINT,
     Enum,
-    create_engine,
-    text,
-)
-
-from database.config import (
-    MYSQL_ACCOUNT,
-    MYSQL_HOST,
-    MYSQL_PASSWORD,
-    MYSQL_PORT,
-    MYSQL_DATABASE,
-)
-
-# 建立連接到 MySQL 的資料庫引擎，不指定資料庫
-engine_no_db = create_engine(
-    f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/",
-    connect_args={"charset": "utf8mb4"},
-)
-
-# 連線，建立 etf 資料庫（如果不存在）
-with engine_no_db.connect() as conn:
-    conn.execute(
-        text(
-            f"CREATE DATABASE IF NOT EXISTS {MYSQL_DATABASE} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-        )
-    )
-
-# 指定連到 etf 資料庫
-engine = create_engine(
-    f"mysql+pymysql://{MYSQL_ACCOUNT}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}",
-    # echo=True,  # 所有 SQL 指令都印出來（debug 用）
-    pool_pre_ping=True,  # 連線前先 ping 一下，確保連線有效
 )
 
 metadata = MetaData()
+
 # ETF 基本資料表
 etfs_table = Table(
     "etfs",
@@ -118,6 +91,3 @@ etl_sync_status_table = Table(
     Column("tri_count", INT),  # TRI 筆數
     Column("updated_at", DateTime),  # 更新時間
 )
-
-# 如果資料表不存在，則建立它們
-metadata.create_all(engine)
