@@ -37,9 +37,7 @@ from crawler.tasks_backtests import compute_backtests
 from database.main import (
     write_etl_sync_status_to_db,
     read_etl_sync_status,
-    # B 組：STEP1 規劃/抓取用游標
-    count_etf_dividends, get_latest_price_date,
-    get_latest_dividend_ex_date, upsert_etl_sync_status, replace_etl_sync_status_bulk,
+    upsert_etl_sync_status, replace_etl_sync_status_bulk,
     # C 組：STEP2 建 TRI 前置
     read_last_tri_point, read_prices_range, read_dividends_range,
     get_latest_tri_date, count_etf_tris, read_etf_region_currency, write_etf_tris_to_db,
@@ -207,7 +205,7 @@ def main_tw() -> Dict[str, Any]:
                 
                 # --- B.3 更新同步狀態 ---
                 logger.info("[%s] 步驟 B.3：更新 `etl_sync_status` 追蹤紀錄...", eid)
-                upsert_etl_sync_status(
+                write_etl_sync_status_to_db(
                     etf_id=eid,
                     last_price_date=current_last_price_date,
                     price_count=current_price_count,
@@ -226,28 +224,48 @@ def main_tw() -> Dict[str, Any]:
         logger.info("===== 步驟 B：規劃與抓取 ETF 詳細資料完成 =====")
 
         # ------------------------------------------------------------
-        # C) STEP2 建 TRI
-        # 流程（每檔）：
-        #   c1) 讀取 TRI 與價格／股利最新點，決定建置區間
-        #   c2) build_tri(eid, ...) → 產出 TRI 並寫回 DB（write_etf_tris_to_db 內部或由任務處理）
-        logger.info("[TW][C] Building TRI ...")
-        for eid in etfs_data_list:
+        # C) STEP2 建 TRI（Transform: Total Return Index）
+        #  流程（每檔）：
+        logger.info("===== 步驟 C：建立 TRI（總報酬指數）開始 =====")
+
+        # 抽出實際要處理的 etf_id 清單
+        tri_etf_ids = [d["etf_id"] for d in etfs_data_list]
+
+        for eid in tri_etf_ids:
             try:
-                logger.info("[TW][C] Prepare ranges for %s ...", eid)
-                # （示意）實務會透過 read_last_tri_point / get_latest_price_date / get_latest_dividend_ex_date 決定起訖
+                logger.info("[C][%s] 準備計算 TRI（region=TW）...", eid)
+
+                # C1) 計算 TRI 並落庫；build_tri 僅回傳最小欄位（etf_id, last_tri_date, tri_count_new）
                 info = build_tri(eid, region=REGION_TW)
-                write_etl_sync_status_to_db([{
-                    "etf_id": eid,
-                    "last_tri_date": info["last_tri_date"],
-                    "tri_count": info["tri_count_new"],
-                }])
+                last_tri_date_new = info.get("last_tri_date")
+                tri_count_new = int(info.get("tri_count_new") or 0)
+
+                # C2) 更新 etl_sync_status（只更新 TRI 相關兩欄）
+                write_etl_sync_status_to_db(
+                    etf_id=eid,
+                    last_tri_date=last_tri_date_new,
+                    tri_count=tri_count_new,
+                )
+
+                # 記錄本檔在 result/per_etf 中的摘要（與前段格式保持一致）
+                per_etf.setdefault(eid, {}).setdefault("tri", {})
+                per_etf[eid]["tri"].update({
+                    "status": "ok",
+                    "last_tri_date": last_tri_date_new,
+                    "tri_count": tri_count_new,
+                })
+
+                logger.info("[C][%s] TRI 完成：last_tri_date=%s, tri_count=%s", eid, last_tri_date_new, tri_count_new)
 
             except Exception as e:
-                logger.exception("[TW][C] Error while building TRI for %s: %s", eid, e)
-                per_etf[eid]["tri"] = {"status": "error"}
+                logger.exception("[C][%s] 建立 TRI 發生錯誤：%s", eid, e)
+                per_etf.setdefault(eid, {}).setdefault("tri", {})
+                per_etf[eid]["tri"].update({"status": "error"})
                 result["summary"]["errors"].append({"etf_id": eid, "stage": "C", "error": str(e)})
 
-        # 以下還改好
+        logger.info("===== 步驟 C：建立 TRI（總報酬指數）完成 =====")
+
+        # 以下還沒改好
         # ------------------------------------------------------------
         # D) 回測
         # 流程（每檔）：

@@ -121,14 +121,12 @@ def build_tri(etf_id: str, region: str, base: float = TRI_BASE) -> Dict:
     # 2) 取得種子 TRI（若同日沒有就抓 <= 該日的最後一筆；都沒有則用 base）
     seed_tri = base
     seed_date = pd.to_datetime(sync_last_tri_date) if sync_last_tri_date else None
-    if seed_date is not None:
-        seed_payload = read_tris_range(etf_id, start=sync_last_tri_date, end=sync_last_tri_date, limit=1, order="desc")
-        if seed_payload and seed_payload.get("records"):
-            seed_tri = float(seed_payload["records"][0]["tri"])
-        else:
-            seed_payload = read_tris_range(etf_id, start=None, end=sync_last_tri_date, limit=1, order="desc")
-            if seed_payload and seed_payload.get("records"):
-                seed_tri = float(seed_payload["records"][0]["tri"])
+    if seed_date is None:
+        tri_last = read_tris_range(etf_id, start=None, end=None, limit=1, order="desc")
+        if tri_last and tri_last.get("records"):
+            sync_last_tri_date = tri_last["records"][0]["tri_date"]
+            seed_tri = float(tri_last["records"][0]["tri"])
+            seed_date = pd.to_datetime(sync_last_tri_date)
 
     # 3) 抓資料（價格必抓；TW 才抓股利）
     df_prices = _df_prices(read_prices_range(etf_id, start=start, end=today))
@@ -162,6 +160,8 @@ def build_tri(etf_id: str, region: str, base: float = TRI_BASE) -> Dict:
         "currency": [currency] * n,
     })[["etf_id", "tri_date", "tri", "currency"]]
 
+    # 寫入前保險：按日排序＋同日去重（保留最後一筆）
+    output = output.sort_values("tri_date").drop_duplicates(subset=["tri_date"], keep="last")
     write_etf_tris_to_db(output)
 
     last_tri_date_new = output["tri_date"].iloc[-1]
