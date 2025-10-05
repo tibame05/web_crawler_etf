@@ -26,10 +26,10 @@ REGION_US: str = "US"
 DEFAULT_START_DATE: str = "2015-01-01"
 
 # TRI 的基期值
-TRI_BASE: float = 100.0
+TRI_BASE: float = 1000.0
 
 # 回測視窗（以「天」為單位）：1年、3年、10年
-BACKTEST_HORIZONS_DAYS: list[int] = [365, 3 * 365, 10 * 365]
+BACKTEST_WINDOWS_YEARS: list[int] = [1, 3, 10]
 
 # 一些安全邊界設定（可視情況使用）
 MIN_TRADING_DAYS_FOR_BACKTEST: int = 200  # 少於此天數不做回測
