@@ -1,4 +1,4 @@
-# crawler/tasks_sync.py
+# crawler/tasks_plan.py
 from datetime import datetime, timedelta, date
 from typing import Dict, Any, Optional
 from crawler import logger
@@ -30,7 +30,8 @@ def _today() -> date:
 @app.task()
 def plan_price_fetch(
     etf_id: str,
-    inception_date: Optional[str] = None,   # "YYYY-MM-DD"
+    inception_date: Optional[str] = None,
+    session=None,   # "YYYY-MM-DD"
 ) -> Optional[Dict[str, str]]:
     """
     規劃『價格』抓取區間。
@@ -41,7 +42,7 @@ def plan_price_fetch(
       - {"start": "YYYY-MM-DD", "price_count": "N"}
     """
     # 1. 讀取現有的同步狀態
-    sync = read_etl_sync_status(etf_id=etf_id) or {}
+    sync = read_etl_sync_status(etf_id=etf_id, session=session) or {}
     last_price_date_str = sync.get("last_price_date")
     price_cnt = int(sync.get("price_count") or 0)
 
@@ -81,10 +82,11 @@ def plan_price_fetch(
         "price_count": str(price_cnt),
     }
 
-
+@app.task()
 def plan_dividend_fetch(
     etf_id: str,
-    inception_date: Optional[str] = None,   # "YYYY-MM-DD"
+    inception_date: Optional[str] = None,
+    session=None,   # "YYYY-MM-DD"
 ) -> Optional[Dict[str, str]]:
     """
     規劃『股利』抓取區間。
@@ -95,7 +97,7 @@ def plan_dividend_fetch(
       - {"start": "YYYY-MM-DD", "dividend_count": "N"}
     """
     # 1. 讀取現有的同步狀態
-    sync = read_etl_sync_status(etf_id=etf_id) or {}
+    sync = read_etl_sync_status(etf_id=etf_id, session=session) or {}
     last_ex_date_str = sync.get("last_dividend_ex_date")
     div_cnt = int(sync.get("dividend_count") or 0)
 

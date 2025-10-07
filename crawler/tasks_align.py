@@ -5,7 +5,7 @@ A. 名單對齊 — 依照目前實作的最小策略版
   * main_tw / main_us 呼叫
   1) 抓名單（爬蟲） → 只取 etf_id, etf_name, region, currency
   * align_step0
-  2) 讀 DB 基本資料（read_etfs_basic）
+  2) 讀 DB 基本資料（read_etfs_id）
   3) 集合比對（寫入 log）：
      - new_ids       = crawled_ids - db_ids
      - intersect_ids = crawled_ids ∩ db_ids
@@ -30,9 +30,7 @@ import json
 from crawler import logger
 from crawler.worker import app  # 僅初始化
 from database.main import (
-    read_etfs_basic,
-    clear_table, 
-    write_etl_sync_status_to_db,
+    read_etfs_id,
     write_etfs_to_db,
 )
 
@@ -114,7 +112,8 @@ def align_step0(
     region: str,
     src_rows: List[Dict[str, Any]],
     use_yfinance: bool = True,
-) -> Tuple[List[str], Dict[str, Any]]:
+    session=None,
+) -> List[Dict[str, str]]:
     """
     參數:
         region: 市場代碼 (例如 "TW")
@@ -132,7 +131,7 @@ def align_step0(
 
     # --- 讀取 DB 並判讀爬蟲 vs 資料庫比對（僅寫log，不影響後續合併邏輯） ---
     crawled_ids: Set[str] = {_norm_id(r["etf_id"]) for r in src_rows if r.get("etf_id")}
-    db_rows: List[Dict[str, Any]] = read_etfs_basic(region=region) or []
+    db_rows: List[Dict[str, Any]] = read_etfs_id(region=region, session=session) or []
     db_ids: Set[str] = {_norm_id(r["etf_id"]) for r in db_rows if (isinstance(r, dict) and r.get("etf_id"))}
 
     new_ids       = sorted(crawled_ids - db_ids)    # 新增的etf_id
@@ -186,14 +185,6 @@ def align_step0(
     else:
         logger.info("[%s][STEP0] 跳過 yfinance 補值（use_yfinance=False）", region)
 
-    # --- 僅清空 etfs 資料表（先刪後寫策略） ---
-    try:
-        clear_table("etfs")
-        logger.info("[%s][STEP0] 已清空資料表：etfs", region)
-    except Exception as e:
-        logger.exception("[%s][STEP0] 清空 etfs 失敗：%s", region, e)
-        raise
-
     # --- 準備寫入 etfs：以「合併後的 row（爬蟲整筆覆蓋或 DB 沿用）」為基礎，套上 yfinance 補值 ---
     to_write: List[Dict[str, Any]] = []
 
@@ -216,7 +207,7 @@ def align_step0(
 
     # --- 寫入DB: etfs 資料表 ---
     try:
-        write_etfs_to_db(to_write)
+        write_etfs_to_db(to_write, session=session)
         logger.info("[%s][STEP0] 已批次寫入 etfs（共 %d 筆）", region, len(to_write))
     except Exception as e:
         logger.exception("[%s][STEP0] 批次寫入 etfs 失敗：%s", region, e)

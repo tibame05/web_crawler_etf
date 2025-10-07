@@ -117,6 +117,7 @@ def backtest_windows_from_tri(
     *,
     risk_free_rate_annual: float = 0.0,
     annualization: int = 252,
+    session=None,
 ) -> Dict[str, object]:
     """
     對指定的 ETF 進行嚴格年窗回測。
@@ -136,7 +137,7 @@ def backtest_windows_from_tri(
     windows_skipped: List[str] = []  # 記錄因資料不足而跳過的年期
 
     # 為提高效率，一次性讀取該 ETF 從頭到尾的完整 TRI 資料
-    payload_all = read_tris_range(etf_id, start=None, end=end_date)
+    payload_all = read_tris_range(etf_id, start=None, end=end_date, session=session)
     tri_all = _records_to_tri_series(payload_all)
     
     # 如果完全沒有 TRI 資料，則記錄日誌並直接返回
@@ -212,13 +213,7 @@ def backtest_windows_from_tri(
     if rows:
         # 轉換為 DataFrame 並根據開始日期排序
         df_out = pd.DataFrame(rows).sort_values(["start_date"])
-        try:
-            # 嘗試使用 upsert_on 參數進行寫入，以 (etf_id, start_date) 作為唯一鍵
-            write_etf_backtest_results_to_db(df_out, upsert_on=["etf_id", "start_date"])
-        except TypeError:
-            # 如果資料庫寫入函式不支援 upsert_on 參數，則執行普通寫入
-            # (此時需要在資料庫層級設定 UNIQUE 約束來達到 upsert 效果)
-            write_etf_backtest_results_to_db(df_out)
+        write_etf_backtest_results_to_db(df_out, session=session)
         inserted = len(df_out)
 
     # 記錄最終的執行摘要日誌

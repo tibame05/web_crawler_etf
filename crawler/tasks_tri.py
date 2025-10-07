@@ -106,7 +106,7 @@ def _compute_tw(df_prices: pd.DataFrame, df_divs: pd.DataFrame,
     return pd.DataFrame({"tri_date": out_dates, "tri": out_vals})
 
 @app.task()
-def build_tri(etf_id: str, region: str, base: float = TRI_BASE) -> Dict:
+def build_tri(etf_id: str, region: str, base: float = TRI_BASE, session=None) -> Dict:
     """
     回傳僅：
       { "etf_id": str, "last_tri_date": str|None, "tri_count_new": int }
@@ -115,7 +115,7 @@ def build_tri(etf_id: str, region: str, base: float = TRI_BASE) -> Dict:
     today = datetime.today().strftime(DATE_FMT)
 
     # 1) 從 etl_sync_status 取得 last_tri_date / tri_count
-    sync_row = read_etl_sync_status(etf_id) or {}
+    sync_row = read_etl_sync_status(etf_id, session=session) or {}
     sync_last_tri_date = sync_row.get("last_tri_date")   # 可能為 None
     prev_tri_count = int(sync_row.get("tri_count") or 0)
     start = sync_last_tri_date or DEFAULT_START_DATE
@@ -124,7 +124,7 @@ def build_tri(etf_id: str, region: str, base: float = TRI_BASE) -> Dict:
     seed_tri = base
     seed_date = pd.to_datetime(sync_last_tri_date) if sync_last_tri_date else None
     if seed_date is None:
-        tri_last = read_tris_range(etf_id, start=None, end=None, limit=1, order="desc")
+        tri_last = read_tris_range(etf_id, start=None, end=None, limit=1, order="desc", session=session)
         if tri_last and tri_last.get("records"):
             sync_last_tri_date = tri_last["records"][0]["tri_date"]
             seed_tri = float(tri_last["records"][0]["tri"])
@@ -164,7 +164,7 @@ def build_tri(etf_id: str, region: str, base: float = TRI_BASE) -> Dict:
 
     # 寫入前保險：按日排序＋同日去重（保留最後一筆）
     output = output.sort_values("tri_date").drop_duplicates(subset=["tri_date"], keep="last")
-    write_etf_tris_to_db(output)
+    write_etf_tris_to_db(output, session=session)
 
     last_tri_date_new = output["tri_date"].iloc[-1]
     tri_added = int(n)

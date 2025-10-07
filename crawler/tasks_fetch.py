@@ -1,4 +1,4 @@
-# crawler/tasks_crawler_etf_tw.py
+# crawler/tasks_fetch.py
 from typing import Dict, Any, List, Optional
 import pandas as pd
 import yfinance as yf
@@ -12,7 +12,7 @@ def _today_str() -> str:
     return pd.Timestamp.today().strftime("%Y-%m-%d")
 
 @app.task()
-def fetch_daily_prices(etf_id: str, plan: Dict[str, Any]) -> Optional[Dict[str, str]]:
+def fetch_daily_prices(etf_id: str, plan: Dict[str, Any], session=None) -> Optional[Dict[str, str]]:
     """
     依 plan 的區間抓取 ETF 的歷史日價格（trade_date），並寫入 DB。
 
@@ -73,7 +73,7 @@ def fetch_daily_prices(etf_id: str, plan: Dict[str, Any]) -> Optional[Dict[str, 
 
     # 寫入 DB
     if rows:
-        write_etf_daily_price_to_db(rows)
+        write_etf_daily_price_to_db(rows, session=session)
         logger.info("✅ %s 日價格已寫入 DB（%d 筆）", etf_id, len(rows))
 
         # 取得最後一筆資料的 'trade_date'
@@ -89,7 +89,7 @@ def fetch_daily_prices(etf_id: str, plan: Dict[str, Any]) -> Optional[Dict[str, 
     return None
 
 @app.task()
-def fetch_dividends(etf_id: str, plan: Dict[str, Any], region: str) -> Optional[Dict[str, str]]:
+def fetch_dividends(etf_id: str, plan: Dict[str, Any], region: str, session=None) -> Optional[Dict[str, str]]:
     """
     依 plan 的區間抓取 ETF 配息資料 (ex_date)，並寫入 DB。
 
@@ -155,7 +155,7 @@ def fetch_dividends(etf_id: str, plan: Dict[str, Any], region: str) -> Optional[
 
     # 寫入 DB
     if rows:
-        write_etf_dividend_to_db(rows)
+        write_etf_dividend_to_db(rows, session=session)
         logger.info("✅ %s 配息資料已寫入 DB（%d 筆）", etf_id, len(rows))
 
         # 取得最後一筆資料的 'ex_date'
