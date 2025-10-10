@@ -69,7 +69,8 @@ etf_backtests_table = Table(
     "etf_backtests",
     metadata,
     Column("etf_id", VARCHAR(20), ForeignKey("etfs.etf_id"), primary_key=True),
-    Column("start_date", Date, primary_key=True),  # 回測起始日
+    Column("label", Enum("1y", "3y", "10y"), primary_key=True),  # 回測年數
+    Column("start_date", Date),  # 回測起始日
     Column("end_date", Date, nullable=False),  # 回測結束日
     Column("cagr", DECIMAL(8, 6)),  # 年化報酬率
     Column("sharpe_ratio", DECIMAL(8, 6)),  # 夏普比率

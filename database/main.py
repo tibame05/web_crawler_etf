@@ -183,7 +183,7 @@ def write_etf_backtest_results_to_db(
 
     parameters:
         records (list[dict[str, Any]]):
-            ETF 回測結果紀錄，每筆資料需包含主鍵欄位 (etf_id, start_date)
+            ETF 回測結果記錄，每筆資料需包含主鍵欄位 (etf_id, label)
             及回測績效相關指標。
         session (Session, optional): 可傳入既有 Session，否則自動建立
 
@@ -191,7 +191,7 @@ def write_etf_backtest_results_to_db(
         None
     """
 
-    primary_keys = ["etf_id", "start_date"]
+    primary_keys = ["etf_id", "label"]  # 更新主鍵包含 label
     cleaned_records = _filter_and_replace_nan(records, primary_keys)
     logger.info(f"Writing {len(cleaned_records)} ETF backtest records to DB")
     _upsert_records_to_db(cleaned_records, etf_backtests_table, primary_keys, session)
