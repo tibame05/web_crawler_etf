@@ -1,6 +1,6 @@
 import pandas as pd
 from datetime import datetime, date
-from typing import Optional, Any, Generator
+from typing import Optional, Any, Generator, List, Dict
 from contextlib import contextmanager
 
 from sqlalchemy.orm import Session
@@ -22,17 +22,17 @@ from database.models import (
 
 
 def _filter_and_replace_nan(
-    records: list[dict[str, Any]], required_fields: list
-) -> list[dict[str, Any]]:
+    records: List[Dict[str, Any]], required_fields: List[str]
+) -> List[Dict[str, Any]]:
     """
     過濾資料並將 NaN 轉為 None，移除主鍵缺失的資料列。
 
     parameters:
-        records (list[dict[str, Any]]): 原始資料紀錄清單
-        required_fields (list): 主鍵欄位，任一欄為缺失或 NaN 則該列會被移除
+        records (List[Dict[str, Any]]): 原始資料紀錄清單
+        required_fields (List): 主鍵欄位，任一欄為缺失或 NaN 則該列會被移除
 
     returns:
-        list[dict[str, Any]]: 處理後的紀錄清單
+        List[Dict[str, Any]]: 處理後的紀錄清單
     """
 
     df = pd.DataFrame(records)
@@ -48,9 +48,9 @@ def _filter_and_replace_nan(
 
 
 def _upsert_records_to_db(
-    records: list[dict[str, Any]],
+    records: List[Dict[str, Any]],
     table: Table,
-    primary_keys: list[str],
+    primary_keys: List[str],
     session: Optional[Session] = None,
 ):
     """
@@ -87,12 +87,12 @@ def _upsert_records_to_db(
         logger.error(f"Upsert to {table.name} failed: {e}", exc_info=True)
 
 
-def write_etfs_to_db(records: list[dict[str, Any]], session: Optional[Session] = None):
+def write_etfs_to_db(records: List[Dict[str, Any]], session: Optional[Session] = None):
     """
     將 ETF 基本資料寫入資料庫，若主鍵已存在則更新資料。
 
     parameters:
-        records (list[dict[str, Any]]):
+        records (List[Dict[str, Any]]):
             ETF 基本資料紀錄，每筆資料需包含主鍵欄位 (etf_id)
             及其他對應 `etfs_table` 欄位的資料。
         session (Session, optional): 可傳入既有 Session，否則自動建立
@@ -108,13 +108,13 @@ def write_etfs_to_db(records: list[dict[str, Any]], session: Optional[Session] =
 
 
 def write_etf_daily_price_to_db(
-    records: list[dict[str, Any]], session: Optional[Session] = None
+    records: List[Dict[str, Any]], session: Optional[Session] = None
 ):
     """
     將 ETF 每日價格資料寫入資料庫，若主鍵已存在則更新資料。
 
     parameters:
-        records (list[dict[str, Any]]):
+        records (List[Dict[str, Any]]):
             ETF 每日價格紀錄，每筆資料需包含主鍵欄位 (etf_id, trade_date)
             以及價格相關欄位 (open, close, high, low, volume, adj_close)。
         session (Session, optional): 可傳入既有 Session，否則自動建立
@@ -132,13 +132,13 @@ def write_etf_daily_price_to_db(
 
 
 def write_etf_dividend_to_db(
-    records: list[dict[str, Any]], session: Optional[Session] = None
+    records: List[Dict[str, Any]], session: Optional[Session] = None
 ):
     """
     將 ETF 配息資料寫入資料庫，若主鍵已存在則更新資料。
 
     parameters:
-        records (list[dict[str, Any]]):
+        records (List[Dict[str, Any]]):
             ETF 配息紀錄，每筆資料需包含主鍵欄位 (etf_id, ex_date)
             及配息金額等欄位。
         session (Session, optional): 可傳入既有 Session，否則自動建立
@@ -154,13 +154,13 @@ def write_etf_dividend_to_db(
 
 
 def write_etf_tris_to_db(
-    records: list[dict[str, Any]], session: Optional[Session] = None
+    records: List[Dict[str, Any]], session: Optional[Session] = None
 ):
     """
     將 ETF 含息累積指數 (TRI) 資料寫入資料庫，若主鍵已存在則更新資料。
 
     parameters:
-        records (list[dict[str, Any]]):
+        records (List[Dict[str, Any]]):
             ETF TRI 紀錄，每筆資料需包含主鍵欄位 (etf_id, tri_date)
             及 TRI 數值欄位。
         session (Session, optional): 可傳入既有 Session，否則自動建立
@@ -176,13 +176,13 @@ def write_etf_tris_to_db(
 
 
 def write_etf_backtest_results_to_db(
-    records: list[dict[str, Any]], session: Optional[Session] = None
+    records: List[Dict[str, Any]], session: Optional[Session] = None
 ):
     """
     將 ETF 回測結果寫入資料庫，若主鍵已存在則更新資料。
 
     parameters:
-        records (list[dict[str, Any]]):
+        records (List[Dict[str, Any]]):
             ETF 回測結果記錄，每筆資料需包含主鍵欄位 (etf_id, label)
             及回測績效相關指標。
         session (Session, optional): 可傳入既有 Session，否則自動建立
@@ -198,13 +198,13 @@ def write_etf_backtest_results_to_db(
 
 
 def write_etl_sync_status_to_db(
-    records: list[dict[str, Any]], session: Optional[Session] = None
+    records: List[Dict[str, Any]], session: Optional[Session] = None
 ):
     """
     將 ETL 同步狀態寫入資料庫，若主鍵已存在則更新資料。
 
     parameters:
-        records (list[dict[str, Any]]):
+        records (List[Dict[str, Any]]):
             ETL 同步狀態紀錄，每筆資料需包含主鍵欄位 (etf_id)
             及同步狀態相關欄位。
         session (Session, optional): 可傳入既有 Session，否則自動建立
@@ -221,7 +221,7 @@ def write_etl_sync_status_to_db(
 
 def read_etfs_id(
     session: Optional[Session] = None, region: Optional[str] = None
-) -> list[dict[str, Any]]:
+) -> List[Dict[str, Any]]:
     """
     讀取所有 ETF 的 etf_id 與 region。
 
@@ -230,11 +230,11 @@ def read_etfs_id(
         region (str, optional): 若指定，僅回傳該市場區域的 ETF
 
     returns:
-        list[dict[str, Any]]: ETF 基本識別資訊清單
+        List[Dict[str, Any]]: ETF 基本識別資訊清單
             - etf_id (str)
             - region (str)
     """
-    
+
     records = []
     with get_session(session) as s:
         sql = """
@@ -252,15 +252,18 @@ def read_etfs_id(
         return records
 
 
-def read_etl_sync_status(session: Optional[Session] = None) -> list[dict[str, Any]]:
+def read_etl_sync_status(
+    etf_id: str, session: Optional[Session] = None
+) -> List[Dict[str, Any]]:
     """
     讀取 ETL 同步狀態表，回傳各 ETF 的最新資料狀態。
 
     parameters:
+        etf_id (str, optional): 若指定，僅回傳該 ETF 的同步狀態
         session (Session, optional): 可傳入既有 Session，否則自動建立
 
     returns:
-        list[dict[str, Any]]: 各 ETF 的同步狀態資訊
+        List[Dict[str, Any]]: 各 ETF 的同步狀態資訊
             - etf_id (str)
             - last_price_date (str | None)
             - price_count (int)
@@ -278,8 +281,9 @@ def read_etl_sync_status(session: Optional[Session] = None) -> list[dict[str, An
                    last_dividend_ex_date, dividend_count,
                    last_tri_date, tri_count, updated_at
             FROM etl_sync_status
+            WHERE etf_id = :etf_id
         """
-        rows = s.execute(text(sql))
+        rows = s.execute(text(sql), {"etf_id": etf_id})
 
         for r in rows:
             records.append(
@@ -303,7 +307,7 @@ def read_etl_sync_status(session: Optional[Session] = None) -> list[dict[str, An
 
 def read_prices_range(
     etf_id: str, start_date: str, end_date: str, session: Optional[Session] = None
-) -> list[dict[str, Any]]:
+) -> List[Dict[str, Any]]:
     """
     讀取指定 ETF 在區間內的每日價格資料。
 
@@ -314,7 +318,7 @@ def read_prices_range(
         session (Session, optional): 可傳入既有 Session，否則自動建立
 
     returns:
-        list[dict[str, Any]]: ETF 每日價格紀錄
+        List[Dict[str, Any]]: ETF 每日價格紀錄
             - etf_id (str)
             - trade_date (str)
             - open, high, low, close, adj_close (float | None)
@@ -354,7 +358,7 @@ def read_prices_range(
 
 def read_dividends_range(
     etf_id: str, start_date: str, end_date: str, session: Optional[Session] = None
-) -> list[dict[str, Any]]:
+) -> List[Dict[str, Any]]:
     """
     讀取指定 ETF 在區間內的配息資料。
 
@@ -365,7 +369,7 @@ def read_dividends_range(
         session (Session, optional): 可傳入既有 Session，否則自動建立
 
     returns:
-        list[dict[str, Any]]: ETF 配息紀錄
+        List[Dict[str, Any]]: ETF 配息紀錄
             - etf_id (str)
             - ex_date (str)
             - dividend_per_unit (float | None)
@@ -402,7 +406,7 @@ def read_dividends_range(
 
 def read_tris_range(
     etf_id: str, start_date: str, end_date: str, session: Optional[Session] = None
-) -> list[dict[str, Any]]:
+) -> List[Dict[str, Any]]:
     """
     讀取指定 ETF 在區間內的 TRI (含息累積指數) 資料。
 
@@ -413,7 +417,7 @@ def read_tris_range(
         session (Session, optional): 可傳入既有 Session，否則自動建立
 
     returns:
-        list[dict[str, Any]]: ETF TRI 紀錄
+        List[Dict[str, Any]]: ETF TRI 紀錄
             - etf_id (str)
             - tri_date (str)
             - tri (float | None)
