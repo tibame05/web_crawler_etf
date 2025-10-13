@@ -1,13 +1,14 @@
+# crawler/tasks_etf_list_us.py
 import requests
 from bs4 import BeautifulSoup
 
 from database.main import write_etfs_to_db
-from crawler.worker import app
+#from crawler.worker import app
 from crawler import logger
 from crawler.tasks_etf_list_tw import _get_currency_from_region
 
 # 註冊 task, 有註冊的 task 才可以變成任務發送給 rabbitmq
-@app.task()
+#@app.task()
 def fetch_us_etf_list(crawler_url: str = "https://tw.tradingview.com/markets/etfs/funds-usa/", region: str = "US"):
     """
     從指定 crawler_url 抓取美國 ETF 清單，並回傳 list of dict：

@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 from pathlib import Path
+from typing import List
 import os
 
 # 指定 .env 路徑
@@ -29,7 +30,7 @@ DEFAULT_START_DATE: str = "2015-01-01"
 TRI_BASE: float = 1000.0
 
 # 回測視窗（以「天」為單位）：1年、3年、10年
-BACKTEST_WINDOWS_YEARS: list[int] = [1, 3, 10]
+BACKTEST_WINDOWS_YEARS: List[int] = [1, 3, 10]
 
 # 一些安全邊界設定（可視情況使用）
 MIN_TRADING_DAYS_FOR_BACKTEST: int = 200  # 少於此天數不做回測

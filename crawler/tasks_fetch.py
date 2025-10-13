@@ -47,14 +47,29 @@ def fetch_daily_prices(etf_id: str, plan: Dict[str, Any], session=None) -> Optio
     if isinstance(price_dataframe.columns, pd.MultiIndex):
         price_dataframe.columns = price_dataframe.columns.droplevel(1)
 
-    # 標準化欄位名稱：全部轉小寫並將空格轉為底線
-    price_dataframe.columns = price_dataframe.columns.str.replace(" ", "_").str.lower()
-
-    # 'date' 是 index，所以要先 reset_index
+    # 先把 index 變成欄位，再做欄名正規化（避免 'Date' 沒轉小寫）
     price_dataframe.reset_index(inplace=True)
 
-    # 資料處理：去除成交量為 0 的列，並用前值補齊缺值
+    # 欄名正規化（全部轉小寫、空白轉底線）
+    price_dataframe.columns = (
+        price_dataframe.columns.astype(str)
+        .str.replace(" ", "_")
+        .str.lower()
+    )
+
+    # 統一日期欄位型別並去時區（有些環境 index→欄位後仍帶 tz）
+    price_dataframe["date"] = pd.to_datetime(price_dataframe["date"], errors="coerce")
+    try:
+        # 若有時區則去掉（tz-aware→naive）
+        if getattr(price_dataframe["date"].dt, "tz", None) is not None:
+            price_dataframe["date"] = price_dataframe["date"].dt.tz_convert("UTC").dt.tz_localize(None)
+    except Exception:
+        # 若 tz_convert 不適用（已經是 naive）就忽略
+        pass
+
+    # 去除 Volume=0，並以前值補齊
     price_dataframe = price_dataframe[price_dataframe["volume"] > 0].ffill()
+
 
     # 統一欄位格式
     output = pd.DataFrame({
@@ -127,19 +142,33 @@ def fetch_dividends(etf_id: str, plan: Dict[str, Any], region: str, session=None
         logger.info("[FETCH][DIV] %s 無配息資料", etf_id)
         return []
 
-    # 區間篩選 (使用第一版更精確的 Pandas 索引篩選)
+    # 將索引統一成 naive datetime（去時區）
+    idx = dividends_series.index
+    try:
+        if getattr(idx, "tz", None) is not None:
+            # 先轉 UTC 再移除時區，避免夏令時間邊界問題
+            dividends_series.index = idx.tz_convert("UTC").tz_localize(None)
+        else:
+            dividends_series.index = pd.to_datetime(idx, errors="coerce")
+    except Exception:
+        # 保底：若 tz_convert 失敗，嘗試直接 tz_localize(None)
+        try:
+            dividends_series.index = idx.tz_localize(None)
+        except Exception:
+            pass
+
     start_ts = pd.Timestamp(start_str)
     end_ts = pd.Timestamp(end_str)
 
-    # 篩選指定區間內的資料 (注意 yfinance 的日期索引是 ex_date)
+    # 只用區間內的資料（這次真的用篩選後的 series）
     filtered_series = dividends_series[(dividends_series.index >= start_ts) & (dividends_series.index <= end_ts)]
 
     if filtered_series.empty:
         logger.info("[FETCH][DIV] %s 指定區間 (%s → %s) 無配息資料", etf_id, start_str, end_str)
         return []
 
-    # 資料轉換與格式化
-    dividend_dataframe = dividends_series.reset_index()
+    dividend_dataframe = filtered_series.reset_index()
+    dividend_dataframe.columns = ["date", "dividends"]  # 統一欄名
 
     # 統一欄位名稱並格式化
     output = pd.DataFrame({

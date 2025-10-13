@@ -1,9 +1,10 @@
 # crawler/tasks_etf_list_tw.py
 import requests
-from bs4 import BeautifulSoup as bs
+from bs4 import BeautifulSoup
+from typing import List
 
 from database.main import write_etfs_to_db
-from crawler.worker import app
+#from crawler.worker import app
 from crawler import logger
 
 def _get_currency_from_region(region: str, etf_id: str) -> str:
@@ -27,8 +28,8 @@ def _get_currency_from_region(region: str, etf_id: str) -> str:
         logger.warning("[CURRENCY] %s 地區 %s 無法判定幣別，設為 %s", etf_id, region, currency)
         return currency
 
-@app.task()
-def fetch_tw_etf_list(crawler_url: str = "https://tw.stock.yahoo.com/tw-etf", region: str = "TW") -> list[dict]:
+#@app.task()
+def fetch_tw_etf_list(crawler_url: str = "https://tw.stock.yahoo.com/tw-etf", region: str = "TW") -> List[dict]:
     """
     從 Yahoo 財經抓取台灣 ETF 清單，並整理為 list of dict：
       - etf_id:   ETF 代號（大寫，結尾為 .TW 或 .TWO）
@@ -42,7 +43,7 @@ def fetch_tw_etf_list(crawler_url: str = "https://tw.stock.yahoo.com/tw-etf", re
     logger.info("開始爬取台灣 ETF 名單...")
 
     response = requests.get(crawler_url)
-    soup = bs.BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(response.text, "html.parser")
 
     etf_records = []
     etf_card_divs = soup.find_all("div", {"class": "Bdbc($bd-primary-divider)"})

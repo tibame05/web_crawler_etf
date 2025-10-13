@@ -22,13 +22,13 @@ A. 名單對齊 — 依照目前實作的最小策略版
 """
 
 from __future__ import annotations
-from typing import Dict, Any, List, Tuple, Set
+from typing import Dict, Any, List, Set
 from datetime import datetime, timezone
 import yfinance as yf
 import json
 
 from crawler import logger
-from crawler.worker import app  # 僅初始化
+#from crawler.worker import app  # 僅初始化
 from database.main import (
     read_etfs_id,
     write_etfs_to_db,
@@ -47,66 +47,95 @@ def _norm_id(x: str) -> str:
 def _enrich_with_yfinance(etf_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     """
     參數:
-        etf_ids: ETF 代碼清單
+        etf_ids(List[str]): ETF 代碼清單
     回傳:
+        Dict[str, Dict[str, Any]]
         {etf_id: {"expense_ratio": float|None, "inception_date": str|None, "status": str|None}}
     """
     out: Dict[str, Dict[str, Any]] = {}
+
     for eid in etf_ids:
-        # 處理 status
+        # 1) 判斷 active / delisted
+        status_val = "delisted"
         try:
             tk = yf.Ticker(eid)
             hist = tk.history(period="1mo", interval="1d")
-            if hist.empty:
-                status_val = "delisted"
-            else:
-                status_val = "active"
+            status_val = "active" if (hasattr(hist, "empty") and not hist.empty) else "delisted"
         except Exception as e:
             logger.warning("[STEP0] ETF %s 無法取得歷史資料，判斷為 delisted: %s", eid, e)
-            status_val = "delisted"
+            tk = None
 
-        # 其他欄位
-        try:
-            # 處理 expense_ratio 管理費
-            info = getattr(tk, "fast_info", {}) or getattr(tk, "info", {}) or {}
+        expense = None
+        inception = None
 
-            exp = (
-                info.get("netExpenseRatio")
-                or info.get("annualReportExpenseRatio")
-                or info.get("expenseRatio")
-            )
-            if exp is not None:
-                try:
-                    exp = float(exp)
-                    if exp > 1.0:
-                        exp /= 100.0
-                except:
-                    exp = None
+        if tk is not None:
+            # 2) 合併 fast_info + get_info()（避免被 fast_info 短路）
+            info = {}
+            try:
+                fi = getattr(tk, "fast_info", {}) or {}
+                if isinstance(fi, dict):
+                    info.update(fi)
+            except Exception:
+                pass
+            try:
+                gi = tk.get_info() if hasattr(tk, "get_info") else (getattr(tk, "info", {}) or {})
+                if isinstance(gi, dict):
+                    info.update(gi)  # 以完整資料覆蓋
+            except Exception:
+                pass
 
-            # 處理 inception_date 成立日
-            inception = info.get("inceptionDate") or info.get("firstTradeDate")
-            if isinstance(inception, (int, float)) and inception > 10000:
-                inception = datetime.fromtimestamp(inception, tz=timezone.utc).date().isoformat()
-            elif hasattr(inception, "isoformat"):
-                inception = inception.isoformat()
-            else:
-                inception = None
+            # 3) 取費用率（多鍵 fallback）
+            for k in ("netExpenseRatio", "annualReportExpenseRatio", "expenseRatio",
+                      "trailingAnnualExpenseRatio", "fundExpenseRatio"):
+                v = info.get(k)
+                if v is not None:
+                    try:
+                        v = float(v)
+                        if v > 1.0:  # 百分數轉比率
+                            v /= 100.0
+                        if v >= 0:
+                            expense = v
+                    except Exception:
+                        pass
+                    break
 
-        except Exception as e:
-            logger.warning("[STEP0] ETF %s 費用率／成立日補值失敗: %s", eid, e)
-            exp = None
-            inception = None
+            # 4) 取成立日（多鍵 fallback + 毫秒/秒）
+            raw = None
+            for k in ("fundInceptionDate", "inceptionDate",
+                      "firstTradeDateMilliseconds", "firstTradeDate", "firstTradeDateEpochUtc"):
+                if info.get(k) is not None:
+                    raw = info.get(k)
+                    break
+
+            if raw is not None:
+                from datetime import datetime, timezone, date
+                if isinstance(raw, (int, float)):
+                    ts = float(raw)
+                    if ts > 1e12:  # 毫秒 -> 秒
+                        ts /= 1000.0
+                    if ts > 10000:
+                        try:
+                            inception = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+                        except Exception:
+                            inception = None
+                elif isinstance(raw, datetime):
+                    inception = raw.date().isoformat()
+                elif isinstance(raw, date):
+                    inception = raw.isoformat()
+                elif isinstance(raw, str):
+                    # 多半已是 YYYY-MM-DD
+                    inception = raw
 
         out[eid] = {
-            "expense_ratio": exp,
+            "expense_ratio":  expense,
             "inception_date": inception,
-            "status": status_val,
+            "status":         status_val,
         }
 
     return out
 
 
-@app.task()
+#@app.task()
 def align_step0(
     *,
     region: str,
