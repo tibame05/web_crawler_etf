@@ -21,6 +21,8 @@ selenium = "==4.27.1"
 load-dotenv = "==0.1.0"
 python-dotenv = "*"
 multitasking = "==0.0.11"
+pytest = "*"
+python-dateutil = "*"
 
 [dev-packages]
 
