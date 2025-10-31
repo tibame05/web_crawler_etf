@@ -7,7 +7,7 @@ from typing import Dict, Iterable, Optional, List  # 用於型別提示，增加
 
 # --- 從專案其他模組匯入 ---
 from crawler.config import BACKTEST_WINDOWS_YEARS  # 匯入預設的回測年期設定，例如 [1, 3, 10]
-from crawler.worker import app  # 匯入 Celery app，用於定義背景任務
+#from crawler.worker import app  # 匯入 Celery app，用於定義背景任務
 from crawler import logger  # 匯入日誌記錄器
 from database.main import write_etf_backtest_results_to_db, read_tris_range  # 匯入資料庫讀寫函式
 
@@ -109,7 +109,7 @@ def _compute_metrics_from_tri(
     }
 
 # ------------- 主流程：嚴格年窗回測 + 一次性寫入資料庫（UPSERT: etf_id+start_date）-------------
-@app.task() # 將此函式定義為一個可以非同步執行的背景任務
+#@app.task() # 將此函式定義為一個可以非同步執行的背景任務
 def backtest_windows_from_tri(
     etf_id: str,
     end_date: str,
@@ -136,8 +136,17 @@ def backtest_windows_from_tri(
     windows_done: List[str] = []  # 記錄成功完成的年期
     windows_skipped: List[str] = []  # 記錄因資料不足而跳過的年期
 
-    # 為提高效率，一次性讀取該 ETF 從頭到尾的完整 TRI 資料
-    payload_all = read_tris_range(etf_id, start=None, end=end_date, session=session)
+    # 一次只讀「最大年窗」所需的區間：end_dt - max_years  到  end_dt
+    max_year = max(windows_years) if windows_years else 0
+    # 給個緩衝，避免週末/國定假日（建議 14 天；7 天也可）
+    buffer_days = 14
+    earliest_needed_dt = end_dt - relativedelta(years=max_year) - relativedelta(days=buffer_days)
+    payload_all = read_tris_range(
+        etf_id,
+        start=earliest_needed_dt.strftime(DATE_FMT),
+        end=end_date,
+        session=session
+    )
     tri_all = _records_to_tri_series(payload_all)
     
     # 如果完全沒有 TRI 資料，則記錄日誌並直接返回
@@ -156,22 +165,32 @@ def backtest_windows_from_tri(
 
     # 遍歷所有要計算的回測年期（例如 1, 3, 10 年）
     for y in windows_years:
-        label = f"{y}y"  # 建立標籤，如 "1y", "3y"
-        # 計算回測的目標起始日 = 結束日 - 年期
+        label = f"{y}y"
         target_start_dt = end_dt - relativedelta(years=y)
 
-        # 嚴格視窗檢查：如果 ETF 實際的第一筆資料日期晚於目標起始日，代表歷史長度不足
-        if actual_first > target_start_dt:
-            logger.info("[BACKTEST][%s][%s] 年資不足（first=%s > target_start=%s），跳過寫入。", etf_id, label, actual_first.strftime(DATE_FMT), target_start_dt.strftime(DATE_FMT))
+        # 只先過濾到 end_dt 以內（保險）
+        s = tri_all[tri_all.index.date <= end_dt]
+        if s.empty:
             windows_skipped.append(label)
-            continue  # 繼續下一個年期的迴圈
+            logger.info("[BACKTEST][%s][%s] 視窗內無 TRI（<= end_dt），跳過。", etf_id, label)
+            continue
 
-        # 從完整的 TRI 資料中，切片出大於等於目標起始日的資料
-        tri = tri_all[tri_all.index.date >= target_start_dt]
-        # 如果切片後是空的，也跳過
-        if tri.empty:
-            logger.info("[BACKTEST][%s][%s] 視窗內無 TRI，跳過。", etf_id, label)
+        # 找到「目標起點日」當天或之前的最後一筆（避免週末/休市）
+        s_le = s[s.index.date <= target_start_dt]
+        if s_le.empty:
             windows_skipped.append(label)
+            logger.info("[BACKTEST][%s][%s] 目標起點 %s 之前無資料，跳過。", etf_id, label, target_start_dt.strftime(DATE_FMT))
+            continue
+
+        start_idx = s_le.index[-1]          # e.g., 2015-10-23 (週五)
+        tri = s[s.index >= start_idx]       # 從這一筆開始到 end_dt
+
+        # 嚴格年窗判定：必須「至少」滿 y 年（用 calendar years 判）
+        win_start = tri.index[0].date()
+        if win_start + relativedelta(years=y) > end_dt:
+            windows_skipped.append(label)
+            logger.info("[BACKTEST][%s][%s] 嚴格年窗不足（start=%s → +%dy > end=%s），跳過。",
+                        etf_id, label, win_start.strftime(DATE_FMT), y, end_dt.strftime(DATE_FMT))
             continue
 
         # 呼叫函式，計算這段時間窗口的績效指標
@@ -189,7 +208,7 @@ def backtest_windows_from_tri(
         # 組合準備寫入資料庫的一筆紀錄
         rows.append({
             "etf_id": etf_id,
-            "window_label": label,  # 視窗標籤，例如 "3y"
+            "label": label,  # 視窗標籤，例如 "3y"
             "start_date": win_start.strftime(DATE_FMT),  # ✅ 主鍵之一
             "end_date": win_end.strftime(DATE_FMT),      # 僅為參考資訊
             "total_return": metrics["total_return"],

@@ -14,7 +14,7 @@ from database.main import (
     write_etf_tris_to_db,
 )
 from crawler.tasks_etf_list_tw import _get_currency_from_region
-from crawler.worker import app
+#from crawler.worker import app
 
 DATE_FMT = "%Y-%m-%d"
 
@@ -105,7 +105,7 @@ def _compute_tw(df_prices: pd.DataFrame, df_divs: pd.DataFrame,
 
     return pd.DataFrame({"tri_date": out_dates, "tri": out_vals})
 
-@app.task()
+#@app.task()
 def build_tri(etf_id: str, region: str, base: float = TRI_BASE, session=None) -> Dict:
     """
     回傳僅：
