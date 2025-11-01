@@ -1,3 +1,4 @@
+# crawler/tasks_backtests.py
 # --- 匯入所需的函式庫 ---
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta  # 用於方便地進行日期加減（例如加減年份）
@@ -14,27 +15,50 @@ from database.main import write_etf_backtest_results_to_db, read_tris_range  # �
 # --- 定義常數 ---
 DATE_FMT = "%Y-%m-%d"  # 定義統一的日期格式字串
 
+def _normalize_records(payload: Optional[object], key: Optional[str] = None) -> List[Dict]:
+    """接受 DB 可能回的 2 種樣式，統一回 list[dict]：
+       - [{"tri_date": "...", "tri": ...}, ...]
+       - {"records": [ ... ]}
+    """
+    if payload is None:
+        return []
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        if key and key in payload and isinstance(payload[key], list):
+            return payload[key]
+        if "records" in payload and isinstance(payload["records"], list):
+            return payload["records"]
+    return []
+
 # ------------- 工具：把從資料庫讀取的 payload 轉成 TRI 的 pandas.Series -------------
 def _records_to_tri_series(payload) -> pd.Series:
-    """將資料庫回傳的 records 轉換為以時間為索引的 pandas Series"""
-    # 從 payload 中取得 'records' 列表，如果 payload 為空或沒有 'records' 鍵，則返回空列表
-    recs = (payload or {}).get("records", [])
-    # 如果沒有任何紀錄，直接回傳一個空的浮點數型別 Series
+    if not isinstance(payload, (list, dict)) and payload is not None:
+        logger.warning("[BACKTEST] Unexpected payload type: %r", type(payload))
+
+    recs = _normalize_records(payload)  # ← 關鍵修正
     if not recs:
         return pd.Series(dtype=float)
-    
-    # 將紀錄列表轉換為 pandas DataFrame
+
     df = pd.DataFrame.from_records(recs)
-    
-    # 為了欄位名稱統一，如果 'tri_date' 不存在但 'date' 存在，則將 'date' 更名為 'tri_date'
+
+    # 日期欄位標準化
     if "tri_date" not in df.columns and "date" in df.columns:
         df = df.rename(columns={"date": "tri_date"})
-        
-    # 建立一個 Series，索引是轉換為 datetime 格式的 'tri_date'，值是轉換為浮點數的 'tri'
-    s = pd.Series(df["tri"].astype(float).values, index=pd.to_datetime(df["tri_date"]))
-    
-    # 依照時間索引排序並回傳
+    if "tri_date" not in df.columns:
+        # 沒日期就沒辦法做時間序列，回空
+        return pd.Series(dtype=float)
+
+    # TRI 值欄位標準化
+    if "tri" not in df.columns and "value" in df.columns:
+        df = df.rename(columns={"value": "tri"})
+    if "tri" not in df.columns:
+        return pd.Series(dtype=float)
+
+    s = pd.Series(df["tri"].astype(float).values,
+                  index=pd.to_datetime(df["tri_date"]))
     return s.sort_index()
+
 
 # ------------- 指標計算：內含無風險利率日化、最大回撤等，皆以 TRI 計算 -------------
 def _compute_metrics_from_tri(
@@ -143,8 +167,8 @@ def backtest_windows_from_tri(
     earliest_needed_dt = end_dt - relativedelta(years=max_year) - relativedelta(days=buffer_days)
     payload_all = read_tris_range(
         etf_id,
-        start=earliest_needed_dt.strftime(DATE_FMT),
-        end=end_date,
+        start_date=earliest_needed_dt.strftime(DATE_FMT),
+        end_date=end_date,
         session=session
     )
     tri_all = _records_to_tri_series(payload_all)
@@ -227,17 +251,20 @@ def backtest_windows_from_tri(
                       metrics["sharpe_ratio"] if pd.notna(metrics["sharpe_ratio"]) else float('nan'),
                       metrics["max_drawdown"])
 
-    # 將所有計算好的結果一次性寫入資料庫
+    # 寫入 DB 後
     inserted = 0
     if rows:
-        # 轉換為 DataFrame 並根據開始日期排序
         df_out = pd.DataFrame(rows).sort_values(["start_date"])
         write_etf_backtest_results_to_db(df_out, session=session)
         inserted = len(df_out)
 
-    # 記錄最終的執行摘要日誌
     logger.info("[BACKTEST][%s] end=%s 已寫入 %d 筆；完成: %s；跳過: %s",
-                  etf_id, end_date, inserted, windows_done, windows_skipped)
+                etf_id, end_date, inserted, windows_done, windows_skipped)
 
-    # 回傳執行的摘要結果
-    return {"etf_id": etf_id, "end_date": end_date}
+    return {
+        "etf_id": etf_id,
+        "end_date": end_date,
+        "written": inserted,              # ★ 主程式讀這個
+        "windows_done": windows_done,     # ★ 主程式讀這個
+        "windows_skipped": windows_skipped,
+    }
