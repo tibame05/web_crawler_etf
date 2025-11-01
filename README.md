@@ -274,6 +274,11 @@ ENV=DOCKER python3 genenv.py
 DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
 ```
 
+-  建立資料庫與與資料表（僅需一次）
+```bash
+pipenv run python database/setup.py
+```
+
 ### 🐰 5. 啟動 RabbitMQ 與 flower（Docker Compose）
 
 ```bash
