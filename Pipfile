@@ -10,7 +10,6 @@ setuptools = "*"
 pandas = "*"
 yfinance = "==0.2.65"
 mplfinance = "==0.12.9b7"
-pandas_ta = "*"
 celery = "==5.5.0"
 apscheduler = "==3.10.4"
 loguru = "==0.6.0"
@@ -22,6 +21,8 @@ selenium = "==4.27.1"
 load-dotenv = "==0.1.0"
 python-dotenv = "*"
 multitasking = "==0.0.11"
+pytest = "*"
+python-dateutil = "*"
 
 [dev-packages]
 

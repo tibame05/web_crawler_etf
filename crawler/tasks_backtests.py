@@ -1,0 +1,270 @@
+# crawler/tasks_backtests.py
+# --- 匯入所需的函式庫 ---
+from datetime import datetime, date
+from dateutil.relativedelta import relativedelta  # 用於方便地進行日期加減（例如加減年份）
+import pandas as pd  # 用於資料處理，特別是時間序列
+import numpy as np  # 用於數值計算，例如 NaN (非數值)
+from typing import Dict, Iterable, Optional, List  # 用於型別提示，增加程式碼可讀性
+
+# --- 從專案其他模組匯入 ---
+from crawler.config import BACKTEST_WINDOWS_YEARS  # 匯入預設的回測年期設定，例如 [1, 3, 10]
+#from crawler.worker import app  # 匯入 Celery app，用於定義背景任務
+from crawler import logger  # 匯入日誌記錄器
+from database.main import write_etf_backtest_results_to_db, read_tris_range  # 匯入資料庫讀寫函式
+
+# --- 定義常數 ---
+DATE_FMT = "%Y-%m-%d"  # 定義統一的日期格式字串
+
+def _normalize_records(payload: Optional[object], key: Optional[str] = None) -> List[Dict]:
+    """接受 DB 可能回的 2 種樣式，統一回 list[dict]：
+       - [{"tri_date": "...", "tri": ...}, ...]
+       - {"records": [ ... ]}
+    """
+    if payload is None:
+        return []
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        if key and key in payload and isinstance(payload[key], list):
+            return payload[key]
+        if "records" in payload and isinstance(payload["records"], list):
+            return payload["records"]
+    return []
+
+# ------------- 工具：把從資料庫讀取的 payload 轉成 TRI 的 pandas.Series -------------
+def _records_to_tri_series(payload) -> pd.Series:
+    if not isinstance(payload, (list, dict)) and payload is not None:
+        logger.warning("[BACKTEST] Unexpected payload type: %r", type(payload))
+
+    recs = _normalize_records(payload)  # ← 關鍵修正
+    if not recs:
+        return pd.Series(dtype=float)
+
+    df = pd.DataFrame.from_records(recs)
+
+    # 日期欄位標準化
+    if "tri_date" not in df.columns and "date" in df.columns:
+        df = df.rename(columns={"date": "tri_date"})
+    if "tri_date" not in df.columns:
+        # 沒日期就沒辦法做時間序列，回空
+        return pd.Series(dtype=float)
+
+    # TRI 值欄位標準化
+    if "tri" not in df.columns and "value" in df.columns:
+        df = df.rename(columns={"value": "tri"})
+    if "tri" not in df.columns:
+        return pd.Series(dtype=float)
+
+    s = pd.Series(df["tri"].astype(float).values,
+                  index=pd.to_datetime(df["tri_date"]))
+    return s.sort_index()
+
+
+# ------------- 指標計算：內含無風險利率日化、最大回撤等，皆以 TRI 計算 -------------
+def _compute_metrics_from_tri(
+    tri: pd.Series,
+    *,
+    risk_free_rate_annual: float = 0.0,  # 年化無風險利率，預設為 0
+    annualization: int = 252,  # 年化因子，通常使用一年的交易日數，預設 252
+    use_calendar_years: bool = True,  # 是否使用日曆年計算 CAGR，預設是
+) -> dict:
+    """根據總報酬指數(TRI)序列計算各項績效指標"""
+    # 移除 Series 中的 NaN 值，並確保型別為浮點數
+    s = tri.dropna().astype(float)
+    # 如果資料點少於 2 個，或是有任何 TRI 值小於等於 0，則無法計算，回傳 NaN
+    if s.size < 2 or (s <= 0).any():
+        return {
+            "total_return": np.nan,
+            "cagr": np.nan,
+            "volatility": np.nan,
+            "sharpe_ratio": np.nan,
+            "max_drawdown": np.nan,
+        }
+
+    # 計算總報酬率 = (期末價值 / 期初價值) - 1
+    total_return = s.iloc[-1] / s.iloc[0] - 1.0
+
+    # 計算年化複合成長率 (CAGR)
+    if use_calendar_years and isinstance(s.index, (pd.DatetimeIndex, pd.PeriodIndex)):
+        # 如果使用日曆年，計算實際經過的總天數
+        days = (s.index[-1] - s.index[0]).days
+        # 將天數轉換為年數（考慮閏年，使用 365.25）
+        years = days / 365.25 if days > 0 else np.nan
+        # 計算 CAGR = (期末價值 / 期初價值)^(1/年數) - 1
+        cagr = (s.iloc[-1] / s.iloc[0]) ** (1.0 / years) - 1.0 if years and years > 0 else np.nan
+    else:
+        # 如果不使用日曆年，則用交易日數來估算
+        n = s.size - 1  # 總區間數
+        # 計算 CAGR = (期末價值 / 期初價值)^(年化因子/總區間數) - 1
+        cagr = (s.iloc[-1] / s.iloc[0]) ** (annualization / n) - 1.0 if n > 0 else np.nan
+
+    # 計算每日報酬率
+    r = s.pct_change().dropna()
+    
+    # 如果每日報酬率序列是空的，或波動為 0，則波動度和夏普比率無法正常計算
+    if r.empty or r.std(ddof=1) == 0:
+        volatility_ann = 0.0
+        sharpe_ratio = np.nan
+    else:
+        # 計算年化波動度 = 每日報酬率標準差 * sqrt(年化因子)
+        volatility_ann = r.std(ddof=1) * np.sqrt(annualization)
+        # 將年化無風險利率轉換為每日無風險利率
+        rf_daily = risk_free_rate_annual / annualization
+        # 計算每日超額報酬 = 每日報酬率 - 每日無風險利率
+        excess = r - rf_daily
+        # 計算夏普比率 = (年化超額報酬) / 年化波動度
+        sharpe_ratio = (excess.mean() * np.sqrt(annualization)) / r.std(ddof=1)
+
+    # 計算最大回撤 (Max Drawdown, MDD)
+    # 計算截至每一天的歷史最高點
+    peak = s.cummax()
+    # 計算每一天的回撤 = (歷史最高點 - 當天價值) / 歷史最高點
+    drawdown = (peak - s) / peak
+    # 找到最大的回撤值
+    max_drawdown = float(drawdown.max()) if not drawdown.empty else np.nan
+
+    # 回傳所有計算好的指標
+    return {
+        "total_return": float(total_return),
+        "cagr": float(cagr) if pd.notna(cagr) else np.nan,
+        "volatility": float(volatility_ann),
+        "sharpe_ratio": float(sharpe_ratio) if pd.notna(sharpe_ratio) else np.nan,
+        "max_drawdown": max_drawdown,
+    }
+
+# ------------- 主流程：嚴格年窗回測 + 一次性寫入資料庫（UPSERT: etf_id+start_date）-------------
+#@app.task() # 將此函式定義為一個可以非同步執行的背景任務
+def backtest_windows_from_tri(
+    etf_id: str,
+    end_date: str,
+    windows_years: Optional[Iterable[int]] = None,  # 回測的年期，預設用 config 的設定
+    *,
+    risk_free_rate_annual: float = 0.0,
+    annualization: int = 252,
+    session=None,
+) -> Dict[str, object]:
+    """
+    對指定的 ETF 進行嚴格年窗回測。
+    - 若 ETF 歷史資料長度不足指定年限，則該年限的計算會被**跳過**。
+    - 將所有計算結果一次性寫入資料庫（使用 UPSERT 方式，避免重複）。
+    - 執行狀態和樣本數等資訊只寫入 log，不存入資料庫。
+    回傳：一個包含執行結果摘要的字典。
+    """
+    # 如果未提供 windows_years，則使用預設值
+    windows_years = list(windows_years or BACKTEST_WINDOWS_YEARS)
+    # 將結束日期字串轉換為 date 物件
+    end_dt: date = datetime.strptime(end_date, DATE_FMT).date()
+
+    # 初始化用於儲存結果的列表
+    rows: List[Dict] = []  # 準備寫入資料庫的每一筆紀錄
+    windows_done: List[str] = []  # 記錄成功完成的年期
+    windows_skipped: List[str] = []  # 記錄因資料不足而跳過的年期
+
+    # 一次只讀「最大年窗」所需的區間：end_dt - max_years  到  end_dt
+    max_year = max(windows_years) if windows_years else 0
+    # 給個緩衝，避免週末/國定假日（建議 14 天；7 天也可）
+    buffer_days = 14
+    earliest_needed_dt = end_dt - relativedelta(years=max_year) - relativedelta(days=buffer_days)
+    payload_all = read_tris_range(
+        etf_id,
+        start_date=earliest_needed_dt.strftime(DATE_FMT),
+        end_date=end_date,
+        session=session
+    )
+    tri_all = _records_to_tri_series(payload_all)
+    
+    # 如果完全沒有 TRI 資料，則記錄日誌並直接返回
+    if tri_all.empty:
+        logger.info("[BACKTEST][%s] end=%s 無任何 TRI 資料，全部跳過。", etf_id, end_date)
+        return {"etf_id": etf_id, "end_date": end_date, "inserted": 0, "windows_done": [], "windows_skipped": [f"{y}y" for y in windows_years]}
+
+    # 取得實際資料的第一天和最後一天
+    actual_first = tri_all.index[0].date()
+    actual_last = tri_all.index[-1].date()
+    
+    # 如果資料的最後一天早於指定的結束日期，則以實際資料的最後一天為準
+    if actual_last < end_dt:
+        logger.info("[BACKTEST][%s] end=%s 但資料最後日為 %s，仍以資料最後日為基準計算。", etf_id, end_date, actual_last.strftime(DATE_FMT))
+        end_dt = actual_last
+
+    # 遍歷所有要計算的回測年期（例如 1, 3, 10 年）
+    for y in windows_years:
+        label = f"{y}y"
+        target_start_dt = end_dt - relativedelta(years=y)
+
+        # 只先過濾到 end_dt 以內（保險）
+        s = tri_all[tri_all.index.date <= end_dt]
+        if s.empty:
+            windows_skipped.append(label)
+            logger.info("[BACKTEST][%s][%s] 視窗內無 TRI（<= end_dt），跳過。", etf_id, label)
+            continue
+
+        # 找到「目標起點日」當天或之前的最後一筆（避免週末/休市）
+        s_le = s[s.index.date <= target_start_dt]
+        if s_le.empty:
+            windows_skipped.append(label)
+            logger.info("[BACKTEST][%s][%s] 目標起點 %s 之前無資料，跳過。", etf_id, label, target_start_dt.strftime(DATE_FMT))
+            continue
+
+        start_idx = s_le.index[-1]          # e.g., 2015-10-23 (週五)
+        tri = s[s.index >= start_idx]       # 從這一筆開始到 end_dt
+
+        # 嚴格年窗判定：必須「至少」滿 y 年（用 calendar years 判）
+        win_start = tri.index[0].date()
+        if win_start + relativedelta(years=y) > end_dt:
+            windows_skipped.append(label)
+            logger.info("[BACKTEST][%s][%s] 嚴格年窗不足（start=%s → +%dy > end=%s），跳過。",
+                        etf_id, label, win_start.strftime(DATE_FMT), y, end_dt.strftime(DATE_FMT))
+            continue
+
+        # 呼叫函式，計算這段時間窗口的績效指標
+        metrics = _compute_metrics_from_tri(
+            tri,
+            risk_free_rate_annual=risk_free_rate_annual,
+            annualization=annualization,
+            use_calendar_years=True,
+        )
+
+        # 取得這個視窗實際的開始與結束日期
+        win_start = tri.index[0].date()
+        win_end = tri.index[-1].date()
+
+        # 組合準備寫入資料庫的一筆紀錄
+        rows.append({
+            "etf_id": etf_id,
+            "label": label,  # 視窗標籤，例如 "3y"
+            "start_date": win_start.strftime(DATE_FMT),  # ✅ 主鍵之一
+            "end_date": win_end.strftime(DATE_FMT),      # 僅為參考資訊
+            "total_return": metrics["total_return"],
+            "cagr": metrics["cagr"],
+            "volatility": metrics["volatility"],
+            "sharpe_ratio": metrics["sharpe_ratio"],
+            "max_drawdown": metrics["max_drawdown"],
+        })
+        windows_done.append(label)
+
+        # 記錄詳細的計算結果日誌
+        logger.info("[BACKTEST][%s][%s] start=%s end=%s  TR=%.6f  CAGR=%.6f  VOL=%.6f  SR=%.6f  MDD=%.6f",
+                      etf_id, label,
+                      win_start.strftime(DATE_FMT), win_end.strftime(DATE_FMT),
+                      metrics["total_return"], metrics["cagr"], metrics["volatility"],
+                      metrics["sharpe_ratio"] if pd.notna(metrics["sharpe_ratio"]) else float('nan'),
+                      metrics["max_drawdown"])
+
+    # 寫入 DB 後
+    inserted = 0
+    if rows:
+        df_out = pd.DataFrame(rows).sort_values(["start_date"])
+        write_etf_backtest_results_to_db(df_out, session=session)
+        inserted = len(df_out)
+
+    logger.info("[BACKTEST][%s] end=%s 已寫入 %d 筆；完成: %s；跳過: %s",
+                etf_id, end_date, inserted, windows_done, windows_skipped)
+
+    return {
+        "etf_id": etf_id,
+        "end_date": end_date,
+        "written": inserted,              # ★ 主程式讀這個
+        "windows_done": windows_done,     # ★ 主程式讀這個
+        "windows_skipped": windows_skipped,
+    }
