@@ -111,9 +111,9 @@ def main_tw() -> Dict[str, Any]:
     per_etf = result["per_etf"]
     today_str = datetime.today().strftime(DATE_FMT)
 
+    # ------------------------------------------------------------
+    # A) STEP0：ETF 名單對齊
     with SessionLocal.begin() as session:
-        # ------------------------------------------------------------
-        # A) STEP0：ETF 名單對齊
         logger.info("===== 步驟 A：同步 ETF 名單開始 =====")
 
         # 1) 抓台股 ETF 名單
@@ -186,9 +186,9 @@ def main_tw() -> Dict[str, Any]:
 
         logger.info("===== 步驟 A：同步 ETF 名單完成 =====")
 
-        # ------------------------------------------------------------
-        # B~D) 規劃與抓取 → 建 TRI →（必要時）回測（單一迴圈逐檔執行）
-
+    # ------------------------------------------------------------
+    # B~D) 規劃與抓取 → 建 TRI →（必要時）回測（單一迴圈逐檔執行）
+    with SessionLocal.begin() as session:
         logger.info("===== 步驟 B~D：規劃/抓取 → 建立 TRI →（必要時）回測 開始 =====")
         result["summary"]["backtests_written"] = 0
 
@@ -369,8 +369,9 @@ def main_tw() -> Dict[str, Any]:
         logger.info("===== 步驟 B~D：規劃/抓取 → 建立 TRI →（必要時）回測 完成；本批回測寫入 %d 筆 =====",
                     result["summary"]["backtests_written"])
 
-        # ------------------------------------------------------------
-        # E) 收尾
+    # ------------------------------------------------------------
+    # E) 收尾
+    with SessionLocal.begin() as session:
         logger.info("===== 步驟 E：更新同步時間與日誌 =====")
 
         updated_today_ids = []
