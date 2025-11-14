@@ -1,9 +1,9 @@
-# crawler/producer_main_tw.py
+# crawler/producer_main_us.py
 """
-美股整體管線（TW only）
+美股整體管線（US only）
 流程：
   0) 啟動與參數記錄
-  A) 名單對齊（資料來源：Yahoo TW → DB 對照）
+  A) 名單對齊（資料來源：Yahoo US → DB 對照）
   B) STEP1 規劃與抓取（價格、股利）
   C) STEP2 建 TRI（含前置查詢）
   D) 回測（輸入 TRI、輸出績效）
@@ -25,12 +25,12 @@ from crawler import logger
 from crawler.config import DEFAULT_START_DATE, REGION_US, BACKTEST_WINDOWS_YEARS
 
 # --- 爬蟲／計算任務（僅引用，不在此實作） ---
-from crawler.tasks_etf_list_us import fetch_us_etf_list
-from crawler.tasks_align import align_step0
-from crawler.tasks_plan import plan_price_fetch, plan_dividend_fetch
-from crawler.tasks_fetch import fetch_daily_prices, fetch_dividends
-from crawler.tasks_tri import build_tri
-from crawler.tasks_backtests import backtest_windows_from_tri
+from crawler.tasks_etf_list_us import fetch_us_etf_list_task
+from crawler.tasks_align import align_step0_task
+from crawler.tasks_plan import plan_price_fetch_task, plan_dividend_fetch_task
+from crawler.tasks_fetch import fetch_daily_prices_task, fetch_dividends_task
+from crawler.tasks_tri import build_tri_task
+from crawler.tasks_backtests import backtest_windows_from_tri_task
 from crawler.producer_main_tw import _merge_update_sync_status
 
 # --- DB 介面（database/main.py 提供；此處只呼叫，不實作細節） ---
@@ -65,11 +65,17 @@ def main_us() -> Dict[str, Any]:
 
         # 1) 抓美股 ETF 名單
         crawler_url = "https://tw.tradingview.com/markets/etfs/funds-usa/"
-        src_rows = fetch_us_etf_list(crawler_url=crawler_url, region=REGION_US)
+        src_rows = fetch_us_etf_list_task.apply_async(
+            kwargs={"crawler_url": crawler_url, "region": REGION_US},
+            queue="us_crawler",
+        ).get()
         logger.info("步驟 A.1：自 tradingview 成功爬取 %d 筆原始 ETF 名單。", len(src_rows))
 
         # 2) 名單對齊與補值
-        etfs_data_list = align_step0(region=REGION_US, src_rows=src_rows, use_yfinance=True, session=session)
+        etfs_data_list = align_step0_task.apply_async(
+            kwargs={"region": REGION_US, "src_rows": src_rows, "use_yfinance": True},
+            queue="us_align",
+        ).get()
 
         # 3) 整備活躍清單（不再過濾，全部處理）
         id2info = {d['etf_id']: d for d in etfs_data_list}
@@ -148,11 +154,17 @@ def main_us() -> Dict[str, Any]:
                 # -----------------------------
                 # --- B.1 規劃（保留原 log）---
                 logger.info("[%s] 步驟 B.1.1：規劃價格 (Price) 資料抓取區間...", eid)
-                plan_p_result = plan_price_fetch(etf_id=eid, inception_date=inception_date, session=session)
+                plan_p_result = plan_price_fetch_task.apply_async(
+                    kwargs={"etf_id": eid, "inception_date": inception_date},
+                    queue="us_plan",
+                ).get()
                 per_etf[eid]["plan"]["price"] = plan_p_result or {}
 
                 logger.info("[%s] 步驟 B.1.2：規劃股利 (Dividend) 資料抓取區間...", eid)
-                plan_d_result = plan_dividend_fetch(etf_id=eid, inception_date=inception_date, session=session)
+                plan_d_result = plan_dividend_fetch_task.apply_async(
+                    kwargs={"etf_id": eid, "inception_date": inception_date},
+                    queue="us_plan",
+                ).get()
                 per_etf[eid]["plan"]["dividend"] = plan_d_result or {}
 
                 current_last_price_date = None
@@ -168,7 +180,10 @@ def main_us() -> Dict[str, Any]:
                 if plan_p_result:
                     plan_p = {"start": plan_p_result["start"]}
                     logger.info("[%s] 步驟 B.2.1：執行價格資料抓取 (計畫=%s)...", eid, plan_p)
-                    got_p_result = fetch_daily_prices(etf_id=eid, plan=plan_p, session=session) or {}
+                    got_p_result = fetch_daily_prices_task.apply_async(
+                        kwargs={"etf_id": eid, "plan": plan_p},
+                        queue="us_fetch",
+                    ).get() or {}
                     per_etf[eid]["fetch"]["price"] = got_p_result
                     if got_p_result:
                         new_records_p = int(got_p_result.get("price_new_records_count", 0) or 0)
@@ -182,7 +197,10 @@ def main_us() -> Dict[str, Any]:
                 if plan_d_result:
                     plan_d = {"start": plan_d_result["start"]}
                     logger.info("[%s] 步驟 B.2.2：執行股利資料抓取 (計畫=%s)...", eid, plan_d)
-                    got_d_result = fetch_dividends(etf_id=eid, plan=plan_d, region=REGION_US, session=session) or {}
+                    got_d_result = fetch_dividends_task.apply_async(
+                        kwargs={"etf_id": eid, "plan": plan_d, "region": REGION_US},
+                        queue="us_fetch",
+                    ).get() or {}
                     per_etf[eid]["fetch"]["dividend"] = got_d_result
                     if got_d_result:
                         new_records_d = int(got_d_result.get("dividend_new_records_count", 0) or 0)
@@ -219,8 +237,11 @@ def main_us() -> Dict[str, Any]:
 
                 # -----------------------------
                 # --- C：建 TRI（沿用原 C+D 首行 log）---
-                logger.info("[C+D][%s] 準備計算 TRI（region=TW）...", eid)
-                info = build_tri(etf_id=eid, region=REGION_US, session=session)
+                logger.info("[C+D][%s] 準備計算 TRI（region=US）...", eid)
+                info = build_tri_task.apply_async(
+                    kwargs={"etf_id": eid, "region": REGION_US},
+                    queue="us_tri",
+                ).get() or {}
                 last_tri_date_new = info.get("last_tri_date")
                 tri_count_new = int(info.get("tri_count_new") or 0)
                 tri_added = int(info.get("tri_added", 0) or 0)  # 建議在 build_tri 回傳此欄位
@@ -253,12 +274,14 @@ def main_us() -> Dict[str, Any]:
                 # -----------------------------
                 # --- D：回測（沿用原有回測 log 格式，但不再限制「必須是今日」）---
                 logger.info("[C+D][%s] 以 end_date=%s 執行回測（1y/3y/10y 嚴格年窗）...", eid, last_tri_date_new)
-                bt_res = backtest_windows_from_tri(
-                    etf_id=eid,
-                    end_date=last_tri_date_new,                 # 用最新 TRI 日期，不論是否為今日/週末
-                    windows_years=BACKTEST_WINDOWS_YEARS,
-                    session=session
-                ) or {}
+                bt_res = backtest_windows_from_tri_task.apply_async(
+                    kwargs={
+                        "etf_id": eid,
+                        "end_date": last_tri_date_new,
+                        "windows_years": BACKTEST_WINDOWS_YEARS,
+                    },
+                    queue="us_backtest",
+                ).get() or {}
                 written = int(bt_res.get("written", 0) or 0)
                 result["summary"]["backtests_written"] += written
 

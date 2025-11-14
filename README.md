@@ -242,137 +242,191 @@ docker rmi joycehsu65/web_crawler:0.0.1
 
 ---
 
-## 🧨 部署 RabbitMQ + Celery 任務系統
+## 🧨 部署 MySQL + RabbitMQ + Celery 任務系統
 
-### 1. 建立 Docker Network（僅需一次）
+### 建立與設定（僅需一次）
 
-```bash
-docker network create etf_lib_network
-```
+1. 建立 Docker Network（僅需一次）
 
-- docker network create {network 名稱}
+    ```bash
+    docker network create etf_lib_network
+    ```
 
-### 2. 建立 MySQL 的 Volume（僅需一次）
+    - docker network create {network 名稱}
 
-```bash
-docker volume create mysql
-```
+2. 建立 MySQL 的 Volume（僅需一次）
 
-- docker volume create {volume 名稱}
+    ```bash
+    docker volume create mysql
+    ```
 
-### ⚙️ 3. 設定 `.env` 環境變數（僅需一次）
+    - docker volume create {volume 名稱}
 
-若尚未建立 `.env` 檔案，可執行下列指令產生：
+3. 設定 `.env` 環境變數（僅需一次）
 
-```bash
-ENV=DOCKER python3 genenv.py
-```
+    若尚未建立 `.env` 檔案，可執行下列指令產生：
 
-### 4. 啟動 MySQL（Docker Compose）
+    ```bash
+    ENV=DOCKER python3 genenv.py
+    ```
 
-```bash
-DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
-```
+4. 安裝 Redis Python 套件
 
--  建立資料庫與與資料表（僅需一次）
-```bash
-pipenv run python database/setup.py
-```
+    ```bash
+    pipenv install redis
+    ```
 
-### 🐰 5. 啟動 RabbitMQ 與 flower（Docker Compose）
+    - Celery 使用 Redis 作為 result backend 需要此套件
 
-```bash
-docker compose -f rabbitmq-network.yml up -d
-```
+### 啟動 MySQL、RabbitMQ、redis
 
-- 啟動 RabbitMQ container 與其 Web 管理介面
-- 管理介面網址：[http://127.0.0.1:15672](http://127.0.0.1:15672/)
-- 預設帳號密碼可於 `rabbitmq-network.yml` 中設定（通常為 `worker / worker`）
+1.  啟動 MySQL（Docker Compose）
 
-### 🔍 6. 檢查與除錯容器
+    ```bash
+    DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
+    ```
 
-查看目前正在運行的 container：
+    -  建立資料庫與與資料表（僅需一次）
 
-```bash
-docker ps
-```
+    ```bash
+    pipenv run python database/setup.py
+    ```
 
-查看 RabbitMQ container log：
+2. 啟動 RabbitMQ 與 flower（Docker Compose）
+    
+    ```bash
+    docker compose -f rabbitmq-network.yml up -d
+    ```
 
-```bash
-docker logs web-crawler-rabbitmq-1
-```
+    - RabbitMQ 管理介面: [http://127.0.0.1:15672](http://127.0.0.1:15672)
+    - 預設帳號密碼: `worker / worker` (可於 `rabbitmq-network.yml` 中設定)
 
-> 📝 若 container 名稱不同，可用 docker ps 確認正確名稱。
-> 
+3. 啟動 redis 
 
-### 🛠️ 7. 啟動工人（Worker）
+    ```bash
+    docker run -d -p 6379:6379 --name redis redis:alpine
+    ```
 
-啟動 Celery 工人來執行佇列任務：
+    - Redis 用於儲存 Celery 任務執行結果（result backend）
+    - 預設監聽 port: `6379`
+    - 測試連接:
+        ```bash
+        docker exec -it redis redis-cli ping
+        # 應返回 PONG
+        ```
 
-```bash
-pipenv run celery -A crawler.worker worker --loglevel=info
-```
+### 日常啟動與停止
 
-- `A crawler.worker`：指定 Celery app 的模組位置
-- `-loglevel=info`：顯示詳細任務處理紀錄
+- 啟動服務
 
-### 👷‍♀️ 7.1. 啟動多個工人（多進程任務處理）
+    ```bash
+    # 啟動 MySQL
+    docker compose -f mysql.yml start
 
-你可以同時啟動多個工人，提高任務處理效率：
+    # 啟動 RabbitMQ
+    docker compose -f rabbitmq-network.yml start
 
-```bash
-pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q tw
-pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q us
-```
+    # 啟動 Redis
+    docker start redis
+    ```
 
-### 7.2 啟動 worker (Docker Compose)
-```bash
-docker compose -f worker-network.yml up -d
-```
+- 停止服務
 
-- worker-network.yml 中可以設定多個 worker services
+    ```bash
+    # 關閉工人（Worker）
+    # 在 terminal 中按 Ctrl + C 中斷
+
+    # 停止 MySQL
+    docker compose -f mysql.yml stop
+
+    # 停止 RabbitMQ
+    docker compose -f rabbitmq-network.yml stop
+
+    # 停止 Redis
+    docker stop redis
+    ```
+
+### 檢查與除錯容器
+
+- 查看目前正在運行的 container：
+
+    ```bash
+    docker ps
+    ```
+
+- 查看容器日誌：
+
+    ```bash
+    # RabbitMQ
+    docker logs web-crawler-rabbitmq-1
+    
+    # MySQL
+    docker logs <mysql_container_name>
+    
+    # Redis
+    docker logs redis
+    ```
+
+    > 📝 容器名稱可透過 `docker ps` 確認
 
 
-### 🚀 8. 發送任務（Producer）
+### 啟動工人（Worker）
 
-執行 `producer_main.py`，將任務加入 RabbitMQ 佇列：
+確認所有服務啟動後,執行以下指令啟動 Worker:
 
-```bash
-pipenv run python crawler/producer_main_tw.py
-pipenv run python crawler/producer_main_us.py
-```
+- TW Worker
+    ```bash
+    celery -A crawler.worker:app worker \
+        -Q tw_crawler,tw_align,tw_plan,tw_fetch,tw_tri,tw_backtest \
+        --hostname tw@%h \
+        --concurrency=4 \
+        --loglevel=INFO
+    ```
 
-> 任務將預設加入名為 celery 的佇列。
+- US
+    ```bash
+    celery -A crawler.worker:app worker \
+        -Q us_crawler,us_align,us_plan,us_fetch,us_tri,us_backtest \
+        --hostname us@%h \
+        --concurrency=4 \
+        --loglevel=INFO
+    ```
+- 參數說明
+    - -A crawler.worker:app: 指定 Celery app 的模組位置
+    - -Q: 指定此 Worker 監聽的佇列 (queue)
+    - --hostname: Worker 的主機名稱,用於識別不同 Worker
+    - --concurrency=4: 同時處理的任務數量 (4 個進程)
+    - --loglevel=INFO: 日誌層級
+    > 💡 提示: 可以在不同的 terminal 視窗同時啟動 TW 和 US Worker,提高任務處理效率
 
-### 8.1 啟動 producer (Docker Compose)
-```bash
-docker compose -f producer-network.yml up -d
-```
+### 發送任務（Producer）
 
-- producer-network.yml 中可以設定多個 producer services
+1. 方法 1: 直接執行 Python 腳本
 
-### 🖥️ 9. Flower：監控任務狀態（Web UI）
+    ```bash
+    # 台股任務
+    pipenv run python crawler/producer_main_tw.py
+
+    # 美股任務
+    pipenv run python crawler/producer_main_us.py
+    ```
+
+    > 任務將預設加入名為 celery 的佇列。
+
+2. 方法 2: 使用 Docker Compose 啟動 Producer
+    
+    ```bash
+    docker compose -f producer-network.yml up -d
+    ```
+
+    - producer-network.yml 中可以設定多個 producer services
+
+### Flower：監控任務狀態（Web UI）
 
 Flower 提供 Celery 任務的監控介面，可透過瀏覽器查看：
 [http://127.0.0.1:5555](http://127.0.0.1:5555/)
 
-
-### 🛑 10. 關閉工人（Worker）
-
-在 terminal 中啟動的工人，可透過 `Ctrl + C` 中斷停止。
-
-### ❌ 11. 關閉 RabbitMQ
-
-```bash
-docker compose -f rabbitmq-network.yml down
-```
-
-### ❌ 11. 關閉 container
-
-```bash
-docker compose -f {yml檔案} down
-```
+---
 
 ## 📁 資料表總覽
 

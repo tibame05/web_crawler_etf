@@ -23,6 +23,7 @@ python-dotenv = "*"
 multitasking = "==0.0.11"
 pytest = "*"
 python-dateutil = "*"
+redis = "*"
 
 [dev-packages]
 
