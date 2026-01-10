@@ -13,7 +13,7 @@ app = Celery(
     include=[
         "crawler.tasks_etf_list_tw",
         "crawler.tasks_etf_list_us",
-        "crawler.tasks_align.py", 
+        "crawler.tasks_align", 
         "crawler.tasks_plan",
         "crawler.tasks_fetch",
         "crawler.tasks_tri",
@@ -26,6 +26,10 @@ app = Celery(
     backend="rpc://"
 )
 
-# app.conf.task_serializer = "pickle"
-# app.conf.result_serializer = "pickle"
-# app.conf.accept_content = ["json", "pickle"]
+app.conf.update(
+    task_serializer='json',
+    accept_content=['json'],
+    result_serializer='json',
+    timezone='Asia/Taipei',
+    enable_utc=True,
+)

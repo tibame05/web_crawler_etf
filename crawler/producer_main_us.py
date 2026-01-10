@@ -1,9 +1,9 @@
-# crawler/producer_main_tw.py
+# crawler/producer_main_us.py
 """
-美股整體管線（TW only）
+美股整體管線（US only）     
 流程：
   0) 啟動與參數記錄
-  A) 名單對齊（資料來源：Yahoo TW → DB 對照）
+  A) 名單對齊（資料來源：Yahoo US → DB 對照）
   B) STEP1 規劃與抓取（價格、股利）
   C) STEP2 建 TRI（含前置查詢）
   D) 回測（輸入 TRI、輸出績效）
@@ -20,11 +20,12 @@
 from __future__ import annotations
 from typing import Dict, Any, Set
 from datetime import datetime
+from sqlalchemy import text
 
 from crawler import logger
 from crawler.config import DEFAULT_START_DATE, REGION_US, BACKTEST_WINDOWS_YEARS
 
-# --- 爬蟲／計算任務（僅引用，不在此實作） ---
+# --- 爬蟲／計算任務 ---
 from crawler.tasks_etf_list_us import fetch_us_etf_list
 from crawler.tasks_align import align_step0
 from crawler.tasks_plan import plan_price_fetch, plan_dividend_fetch
@@ -59,269 +60,253 @@ def main_us() -> Dict[str, Any]:
     today_str = datetime.today().strftime(DATE_FMT)
 
     # ------------------------------------------------------------
-    # A) STEP0：ETF 名單對齊
-    with SessionLocal.begin() as session:
-        logger.info("===== 步驟 A：同步 ETF 名單開始 =====")
+    try:
+        # A) STEP0：ETF 名單對齊
+        with SessionLocal.begin() as session:
+            logger.info("===== 步驟 A：同步 ETF 名單開始 =====")
 
-        # 1) 抓美股 ETF 名單
-        crawler_url = "https://tw.tradingview.com/markets/etfs/funds-usa/"
-        src_rows = fetch_us_etf_list(crawler_url=crawler_url, region=REGION_US)
-        logger.info("步驟 A.1：自 tradingview 成功爬取 %d 筆原始 ETF 名單。", len(src_rows))
+            # 1) 抓美股 ETF 名單
+            crawler_url = "https://tw.tradingview.com/markets/etfs/funds-usa/"
+            src_rows = fetch_us_etf_list.apply_async(
+                kwargs={"crawler_url": crawler_url, "region": REGION_US},
+                queue="crawler_us"
+            ).get(timeout=60) # 等待結果，設定 60 秒超時保護
+            logger.info("步驟 A.1：自 tradingview 成功爬取 %d 筆原始 ETF 名單。", len(src_rows))
 
-        # 2) 名單對齊與補值
-        etfs_data_list = align_step0(region=REGION_US, src_rows=src_rows, use_yfinance=True, session=session)
+            # 2) 名單對齊與補值
+            etfs_data_list = align_step0.apply_async(
+                kwargs={"region": REGION_US, "src_rows": src_rows, "use_yfinance": True},
+                queue="crawler_us"
+            ).get(timeout=60) 
 
-        # 3) 整備活躍清單（不再過濾，全部處理）
-        id2info = {d['etf_id']: d for d in etfs_data_list}
-        final_all_ids: Set[str] = set(id2info.keys())
+            # 3) 整備活躍清單（不再過濾，全部處理）
+            id2info = {d['etf_id']: d for d in etfs_data_list}
+            final_all_ids: Set[str] = set(id2info.keys())
+            active_ids = sorted(final_all_ids)
+            result["summary"]["n_etf"] = len(active_ids)
+            logger.info("步驟 A.2：經過濾與對齊後，最終需處理的活躍 ETF 名單共 %d 筆。", len(active_ids))
 
-        active_ids = sorted(final_all_ids)
-
-        result["summary"]["n_etf"] = len(active_ids)
-        logger.info("步驟 A.2：經過濾與對齊後，最終需處理的活躍 ETF 名單共 %d 筆。", len(active_ids))
-
-
-        # 4) etl_sync_status 逐檔補建
-        try:
-            existing_sync_ids: Set[str] = set()
-            missing_sync_ids: list[str] = []
-
-            for eid in active_ids:
-                row = read_etl_sync_status(etf_id=eid, session=session)
-                if isinstance(row, list):
-                    row = row[0] if row else None
-
-                if row and row.get("etf_id"):
-                    existing_sync_ids.add(row["etf_id"])
-                else:
-                    missing_sync_ids.append(eid)
-
-            logger.info("步驟 A.3：資料庫 `etl_sync_status` 中已存在 %d 筆 ETF 追蹤紀錄。", len(existing_sync_ids))
-
-            if missing_sync_ids:
-                logger.info("步驟 A.4：發現 %d 筆新 ETF 需加入追蹤：%s",
-                            len(missing_sync_ids), missing_sync_ids)
-                rows_to_insert = [
-                    {
-                        "etf_id": eid,
-                        "region": REGION_US,  # 若表無 region 欄位可移除
-                        "last_price_date": None,
-                        "price_count": 0,
-                        "last_dividend_ex_date": None,
-                        "dividend_count": 0,
-                        "last_tri_date": None,
-                        "tri_count": 0,
-                        "updated_at": None,
-                    }
-                    for eid in missing_sync_ids
-                ]
-                write_etl_sync_status_to_db(rows_to_insert, session=session)
-                logger.info("步驟 A.5：已成功將 %d 筆新 ETF 的初始狀態寫入資料庫。", len(rows_to_insert))
-            else:
-                logger.info("步驟 A.4：無新發現的 ETF，不需更新追蹤表。")
-        except Exception as e:
-            error_msg = f"處理 `etl_sync_status` 新增 ETF 追蹤時發生錯誤: {e}"
-            logger.exception("【錯誤】%s", error_msg)
-            result["summary"]["errors"].append({"etf_id": "N/A", "stage": "SYNC_INIT", "error": error_msg})
-
-        logger.info("===== 步驟 A：同步 ETF 名單完成 =====")
-
-    # ------------------------------------------------------------
-    # B~D) 規劃與抓取 → 建 TRI →（必要時）回測（單一迴圈逐檔執行）
-    with SessionLocal.begin() as session:
-        logger.info("===== 步驟 B~D：規劃/抓取 → 建立 TRI →（必要時）回測 開始 =====")
-        result["summary"]["backtests_written"] = 0
-
-        for eid in active_ids:  
-            etf_info = id2info[eid]
-            inception_date = etf_info.get("inception_date")
-            logger.info("--- 開始處理 ETF: %s ---", eid)
-
-            # 保留原本 per_etf 結構
-            per_etf[eid] = {
-                "plan": {"price": {}, "dividend": {}},
-                "fetch": {"price": {}, "dividend": {}},
-                "sync": {}, "tri": {}, "backtests": {},
-            }
-
+            # 4) etl_sync_status 逐檔補建
             try:
-                # -----------------------------
-                # --- B.1 規劃（保留原 log）---
-                logger.info("[%s] 步驟 B.1.1：規劃價格 (Price) 資料抓取區間...", eid)
-                plan_p_result = plan_price_fetch(etf_id=eid, inception_date=inception_date, session=session)
-                per_etf[eid]["plan"]["price"] = plan_p_result or {}
+                existing_sync_ids: Set[str] = set()
+                missing_sync_ids: list[str] = []
 
-                logger.info("[%s] 步驟 B.1.2：規劃股利 (Dividend) 資料抓取區間...", eid)
-                plan_d_result = plan_dividend_fetch(etf_id=eid, inception_date=inception_date, session=session)
-                per_etf[eid]["plan"]["dividend"] = plan_d_result or {}
+                for eid in active_ids:
+                    row = read_etl_sync_status(etf_id=eid, session=session)
+                    if isinstance(row, list):
+                        row = row[0] if row else None
 
-                current_last_price_date = None
-                current_price_count = int(plan_p_result.get("price_count", 0)) if plan_p_result else 0
-                current_last_dividend_ex_date = None
-                current_dividend_count = int(plan_d_result.get("dividend_count", 0)) if plan_d_result else 0
-
-                # -----------------------------
-                # --- B.2 抓取（保留原 log）---
-                got_p_result = {}
-                got_d_result = {}
-
-                if plan_p_result:
-                    plan_p = {"start": plan_p_result["start"]}
-                    logger.info("[%s] 步驟 B.2.1：執行價格資料抓取 (計畫=%s)...", eid, plan_p)
-                    got_p_result = fetch_daily_prices(etf_id=eid, plan=plan_p, session=session) or {}
-                    per_etf[eid]["fetch"]["price"] = got_p_result
-                    if got_p_result:
-                        new_records_p = int(got_p_result.get("price_new_records_count", 0) or 0)
-                        current_last_price_date = got_p_result.get("price_latest_date")
-                        current_price_count += new_records_p
+                    if row and row.get("etf_id"):
+                        existing_sync_ids.add(row["etf_id"])
                     else:
-                        new_records_p = 0
+                        missing_sync_ids.append(eid)
+
+                logger.info("步驟 A.3：資料庫 `etl_sync_status` 中已存在 %d 筆 ETF 追蹤紀錄。", len(existing_sync_ids))
+
+                if missing_sync_ids:
+                    logger.info("步驟 A.4：發現 %d 筆新 ETF 需加入追蹤：%s",
+                                len(missing_sync_ids), missing_sync_ids)
+                    rows_to_insert = [
+                        {
+                            "etf_id": eid,
+                            "region": REGION_US,  # 若表無 region 欄位可移除
+                            "last_price_date": None,
+                            "price_count": 0,
+                            "last_dividend_ex_date": None,
+                            "dividend_count": 0,
+                            "last_tri_date": None,
+                            "tri_count": 0,
+                            "updated_at": None,
+                        }
+                        for eid in missing_sync_ids
+                    ]
+                    write_etl_sync_status_to_db(rows_to_insert, session=session)
+                    logger.info("步驟 A.5：已成功將 %d 筆新 ETF 的初始狀態寫入資料庫。", len(rows_to_insert))
                 else:
-                    new_records_p = 0
-
-                if plan_d_result:
-                    plan_d = {"start": plan_d_result["start"]}
-                    logger.info("[%s] 步驟 B.2.2：執行股利資料抓取 (計畫=%s)...", eid, plan_d)
-                    got_d_result = fetch_dividends(etf_id=eid, plan=plan_d, region=REGION_US, session=session) or {}
-                    per_etf[eid]["fetch"]["dividend"] = got_d_result
-                    if got_d_result:
-                        new_records_d = int(got_d_result.get("dividend_new_records_count", 0) or 0)
-                        current_last_dividend_ex_date = got_d_result.get("dividend_latest_date")
-                        current_dividend_count += new_records_d
-                    else:
-                        new_records_d = 0
-                else:
-                    new_records_d = 0
-
-                # -----------------------------
-                # --- B.3 更新同步狀態（保留原 log）---
-                logger.info("[%s] 步驟 B.3：更新 `etl_sync_status` 追蹤紀錄...", eid)
-                _merge_update_sync_status(
-                    {
-                        "etf_id": eid,
-                        "last_price_date": current_last_price_date,
-                        "price_count": current_price_count,
-                        "last_dividend_ex_date": current_last_dividend_ex_date,
-                        "dividend_count": current_dividend_count
-                    }, session=session
-                )
-                per_etf[eid]["sync"]["status"] = "ok"
-                logger.info("[%s] 價格/股利抓取與同步完成。", eid)
-
-                # -----------------------------
-                # --- 介面：若 B 無新增價格 → 直接跳過 C、D（新增說明 log）---
-                if new_records_p <= 0:
-                    logger.info("[%s] B 無新增價格（%d），跳過 C 與 D。", eid, new_records_p)
-                    continue
-                
-                # 關鍵：把同一 transaction 的 INSERT 送到 DB、讓同 session 的 SELECT 看得到
-                session.flush()
-
-                # -----------------------------
-                # --- C：建 TRI（沿用原 C+D 首行 log）---
-                logger.info("[C+D][%s] 準備計算 TRI（region=TW）...", eid)
-                info = build_tri(etf_id=eid, region=REGION_US, session=session)
-                last_tri_date_new = info.get("last_tri_date")
-                tri_count_new = int(info.get("tri_count_new") or 0)
-                tri_added = int(info.get("tri_added", 0) or 0)  # 建議在 build_tri 回傳此欄位
-
-                # 同步 TRI 欄位（保留你的寫法與 log）
-                _merge_update_sync_status(
-                    {"etf_id": eid, "last_tri_date": last_tri_date_new, "tri_count": tri_count_new},
-                    session=session
-                )
-
-                per_etf.setdefault(eid, {}).setdefault("tri", {})
-                per_etf[eid]["tri"].update({
-                    "status": "ok",
-                    "last_tri_date": last_tri_date_new,
-                    "tri_count": tri_count_new,
-                    "tri_added": tri_added,
-                })
-                logger.info("[C+D][%s] TRI 完成：last_tri_date=%s, tri_count=%s", eid, last_tri_date_new, tri_count_new)
-
-                # 若 C 無新增 TRI → 跳過 D（新增說明 log）
-                if tri_added <= 0:
-                    per_etf.setdefault(eid, {}).setdefault("backtests", {})
-                    per_etf[eid]["backtests"].update({
-                        "status": "skipped_no_new_tri",
-                        "end_date": last_tri_date_new,
-                    })
-                    logger.info("[C+D][%s] 本次無新增 TRI（tri_added=%d），跳過回測。", eid, tri_added)
-                    continue
-
-                # -----------------------------
-                # --- D：回測（沿用原有回測 log 格式，但不再限制「必須是今日」）---
-                logger.info("[C+D][%s] 以 end_date=%s 執行回測（1y/3y/10y 嚴格年窗）...", eid, last_tri_date_new)
-                bt_res = backtest_windows_from_tri(
-                    etf_id=eid,
-                    end_date=last_tri_date_new,                 # 用最新 TRI 日期，不論是否為今日/週末
-                    windows_years=BACKTEST_WINDOWS_YEARS,
-                    session=session
-                ) or {}
-                written = int(bt_res.get("written", 0) or 0)
-                result["summary"]["backtests_written"] += written
-
-                per_etf.setdefault(eid, {}).setdefault("backtests", {})
-                per_etf[eid]["backtests"].update({
-                    "status": "ok",
-                    "end_date": last_tri_date_new,
-                    "windows_done": bt_res.get("windows_done", []),
-                    "windows_skipped": bt_res.get("windows_skipped", []),
-                    "written": written,
-                })
-                logger.info("[C+D][%s] 回測完成：寫入 %d 筆；完成=%s；跳過=%s",
-                            eid, written,
-                            bt_res.get("windows_done", []),
-                            bt_res.get("windows_skipped", []))
+                    logger.info("步驟 A.4：無新發現的 ETF，不需更新追蹤表。")
 
             except Exception as e:
-                # 保留你原本的錯誤紀錄格式
-                logger.exception("[C+D][%s] TRI/回測流程發生錯誤：%s", eid, e)
-                per_etf.setdefault(eid, {}).setdefault("tri", {})
-                per_etf[eid]["tri"].update({"status": "error"})
-                per_etf.setdefault(eid, {}).setdefault("backtests", {})
-                per_etf[eid]["backtests"].update({"status": "error"})
-                result["summary"]["errors"].append({"etf_id": eid, "stage": "C+D", "error": str(e)})
+                error_msg = f"處理 `etl_sync_status` 新增 ETF 追蹤時發生錯誤: {e}"
+                logger.exception("【錯誤】%s", error_msg)
+                result["summary"]["errors"].append({"etf_id": "N/A", "stage": "SYNC_INIT", "error": error_msg})
 
-        logger.info("===== 步驟 B~D：規劃/抓取 → 建立 TRI →（必要時）回測 完成；本批回測寫入 %d 筆 =====",
-                    result["summary"]["backtests_written"])
+            logger.info("===== 步驟 A：同步 ETF 名單完成 =====")
 
-    # ------------------------------------------------------------
-    # E) 收尾
-    with SessionLocal.begin() as session:
-        logger.info("===== 步驟 E：更新同步時間與日誌 =====")
+        # ------------------------------------------------------------
+        # B） 規劃與抓取
+        with SessionLocal.begin() as session:
+            logger.info("===== 步驟 B：規劃與派發並行抓取任務開始 =====")
+            result["summary"]["backtests_written"] = 0
 
-        updated_today_ids = []
-        for eid in per_etf.keys():
-            last_tri_date = per_etf.get(eid, {}).get("tri", {}).get("last_tri_date")
-            if last_tri_date == today_str:
-                updated_today_ids.append(eid)
+            # 使用 Dictionary 存放任務物件，實現真正並行
+            price_jobs = {}
+            div_jobs = {}
+            plans = {}
 
-        if updated_today_ids:
-            logger.info("【總結】今日有更新 TRI 資料的 ETF：共 %d 檔 → %s",
-                        len(updated_today_ids), updated_today_ids)
-        else:
-            logger.info("【總結】今日無新的 TRI 更新資料。")
+            # --- B.1 規劃 ---
+            for eid in active_ids:  
+                # 保留原本 per_etf 結構
+                per_etf[eid] = {
+                    "plan": {"price": {}, "dividend": {}},
+                    "fetch": {"price": {}, "dividend": {}},
+                    "sync": {}, "tri": {}, "backtests": {},
+                }
+                etf_info = id2info[eid]
+                inception_date = etf_info.get("inception_date") or DEFAULT_START_DATE
 
-        try:
-            count = 0
-            now_dt = datetime.now() 
+                logger.info("[%s] 步驟 B.1：規劃價格 (Price) 與股利 (Dividend) 資料抓取區間...", eid)
+                plans[eid] = {
+                    "p": plan_price_fetch.apply_async(kwargs={"etf_id": eid, "inception_date": inception_date}, queue="crawler_us").get(),
+                    "d": plan_dividend_fetch.apply_async(kwargs={"etf_id": eid, "inception_date": inception_date}, queue="crawler_us").get()
+                }
+                per_etf[eid]["plan"]["price"] = plans[eid]["p"] or {}
+                per_etf[eid]["plan"]["dividend"] = plans[eid]["d"] or {}
+            
+            # --- B.2 抓取 ---
+            for eid in active_ids:
+                if plans[eid]["p"]:
+                    plan_p = {"start": plans[eid]["p"]["start"]}
+                    logger.info("[%s] 步驟 B.2.1：執行價格資料抓取 (計畫=%s)...", eid, plan_p)
+                    price_jobs[eid] = fetch_daily_prices.apply_async(
+                        kwargs={"etf_id": eid, "plan": plans[eid]["p"]},
+                        queue="crawler_us"
+                    )
+                if plans[eid]["d"]:
+                    plan_d = {"start": plans[eid]["d"]["start"]}
+                    logger.info("[%s] 步驟 B.2.2：執行股利資料抓取 (計畫=%s)...", eid, plan_d)
+                    div_jobs[eid] = fetch_dividends.apply_async(
+                        kwargs={"etf_id": eid, "plan": plans[eid]["d"], "region": REGION_US},
+                        queue="crawler_us"
+                    )
+
+            # -----------------------------
+            # --- C+D：收集結果、更新同步狀態、執行 TRI 與 回測 ---
+            logger.info("===== 步驟 C+D：收集結果與執行計算 =====")
+
+            # 用來存放計算任務的物件
+            tri_jobs = {}
+            bt_jobs = {}
+
+            # 第一階段：快速獲取 Fetch 結果並「立刻派發」計算任務
+            for eid in active_ids:
+                try:
+                    new_records_p = 0
+                    current_last_price_date = None
+                    
+                    # 收集抓取結果 (阻塞等待個別任務完成)
+                    p_res = price_jobs[eid].get(timeout=120) if eid in price_jobs else None
+                    d_res = div_jobs[eid].get(timeout=120) if eid in div_jobs else None
+                    
+                    per_etf[eid]["fetch"]["price"] = p_res or {}
+                    per_etf[eid]["fetch"]["dividend"] = d_res or {}
+
+                    if p_res:
+                        new_records_p = int(p_res.get("price_new_records_count", 0) or 0) if p_res else 0
+                        current_last_price_date = p_res.get("price_latest_date")
+
+                    # 更新 price and dividend 同步狀態
+                    with SessionLocal.begin() as session:
+                        _merge_update_sync_status({
+                            "etf_id": eid,
+                            "last_price_date": current_last_price_date,
+                            "price_count": (int(plans[eid]["p"].get("price_count", 0)) + new_records_p) if plans[eid]["p"] else 0,
+                            "last_dividend_ex_date": d_res.get("dividend_latest_date") if d_res else None,
+                            "dividend_count": (int(plans[eid]["d"].get("dividend_count", 0)) + int(d_res.get("dividend_new_records_count", 0) if d_res else 0)) if plans[eid]["d"] else 0
+                        }, session=session)
+
+                    # 只有在有新價格時才進行 TRI 與回測
+                    if new_records_p > 0:
+                        tri_jobs[eid] = build_tri.apply_async(kwargs={"etf_id": eid, "region": REGION_US}, queue="crawler_us")
+                    else:
+                        logger.info(f"[{eid}] B 無新增價格，跳過 C 與 D。")
+
+                except Exception as e:
+                    logger.error(f"[{eid}] 派發 TRI 任務失敗: {e}")
+            
+            # 第二階段：統一收集 TRI 結果並派發 Backtest 任務
+            logger.info("===== 步驟 C+D：收集 TRI 並派發回測任務 =====")
+            for eid, job in tri_jobs.items():
+                try:
+                    tri_res = job.get(timeout=60)
+                    last_tri_date_new = tri_res.get("last_tri_date")
+                    tri_count_new = int(tri_res.get("tri_count_new") or 0)
+                    tri_added = int(tri_res.get("tri_added", 0) or 0)
+
+                    # 更新 TRI 同步狀態
+                    with SessionLocal.begin() as session:
+                        _merge_update_sync_status({"etf_id": eid, "last_tri_date": last_tri_date_new, "tri_count": tri_count_new}, session=session)
+                    
+                    per_etf[eid]["tri"].update(tri_res)
+                    per_etf[eid]["tri"].update({"status": "ok"})
+                    logger.info(f"[{eid}] TRI 計算完成，新增 {tri_added} 筆，最新日期 {last_tri_date_new}.")
+
+                    # 如果有新 TRI，「派發」回測任務
+                    if tri_added > 0:
+                        bt_res = backtest_windows_from_tri.apply_async(
+                            kwargs={"etf_id": eid, "end_date": last_tri_date_new, "windows_years": BACKTEST_WINDOWS_YEARS}, # 修正參數名
+                            queue="crawler_us"
+                        )
+                    else:
+                        logger.info(f"[{eid}] TRI 無新增資料，跳過回測。")
+                
+                except Exception as e:
+                    logger.error(f"[{eid}] TRI 計算或派發回測失敗: {e}")
+
+            # 第三階段：最後統一收集回測結果
+            logger.info("===== 步驟 C+D：收集最終回測結果 =====")
+            for eid, job in bt_jobs.items():
+                try:
+                    bt_res = job.get(timeout=60)
+                    written = int(bt_res.get("written", 0) or 0)
+                    result["summary"]["backtests_written"] += written
+                    per_etf[eid]["backtests"].update({
+                        "status": "ok", "end_date": last_tri_date_new, "windows_done": bt_res.get("windows_done", []),
+                        "windows_skipped": bt_res.get("windows_skipped", []), "written": written
+                    })
+                    logger.info(f"[{eid}] 回測並行完成，寫入 {written} 筆。")
+
+                except Exception as e:
+                    logger.error(f"[{eid}] 收集回測結果失敗: {e}")
+
+        # ------------------------------------------------------------
+        # E) 收尾
+        with SessionLocal.begin() as session:
+            logger.info("===== 步驟 E：更新同步時間與日誌 =====")
+
+            # 修改後的判斷邏輯：檢查本次執行的「新增筆數」
+            updated_this_run_ids = []
             for eid in per_etf.keys():
-                _merge_update_sync_status({"etf_id": eid, "updated_at": now_dt}, session=session)
-                count += 1
-            logger.info("已更新所有 %d 檔 ETF 的 `updated_at=%s`。", count, now_dt.isoformat(timespec="seconds"))
-        
-        except Exception as e:
-            logger.exception("更新 `etl_sync_status.updated_at` 時發生錯誤：%s", e)
-            result["summary"]["errors"].append({"etf_id": "ALL", "stage": "E", "error": str(e)})
+                # 取得任務回傳的新增筆數 (tri_added)
+                tri_added = per_etf.get(eid, {}).get("tri", {}).get("tri_added", 0)
+                if tri_added > 0:
+                    updated_this_run_ids.append(eid)
 
-        logger.info("===== 步驟 E：同步收尾完成 =====")
+            if updated_this_run_ids:
+                logger.info("【總結】本次執行有更新 TRI 資料的 ETF：共 %d 檔 → %s",
+                            len(updated_this_run_ids), updated_this_run_ids)
+            else:
+                logger.info("【總結】本次執行中，所有 ETF 均無新的 TRI 資料需要更新。")
 
-    return result
+            try:
+                count = 0
+                now_dt = datetime.now() 
+                for eid in per_etf.keys():
+                    _merge_update_sync_status({"etf_id": eid, "updated_at": now_dt}, session=session)
+                    count += 1
+                logger.info("已更新所有 %d 檔 ETF 的 `updated_at = %s`。", count, now_dt.isoformat(timespec="seconds"))
+            
+            except Exception as e:
+                logger.exception("更新 `etl_sync_status.updated_at` 時發生錯誤：%s", e)
+                result["summary"]["errors"].append({"etf_id": "ALL", "stage": "E", "error": str(e)})
+
+            logger.info("===== 步驟 E：同步收尾完成 =====")
+            return result
+    
+    except Exception as e:
+        logger.exception("【重大錯誤】美股 ETF 資訊同步主流程發生未預期錯誤：%s", e)
+        result["summary"]["errors"].append({"etf_id": "N/A", "stage": "MAIN", "error": str(e)})
+        return result
 
 
 if __name__ == "__main__":
-    # 注意：主程式僅示範執行入口；實務可由 CLI 參數傳入 start_date 等
     main_us()
-    # 這裡不強制 print 詳細內容，保留給上層呼叫者；需要時可自行 print(json.dumps(out, ensure_ascii=False, indent=2))

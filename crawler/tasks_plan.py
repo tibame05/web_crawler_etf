@@ -5,7 +5,8 @@ from typing import Dict, Any, Optional, List
 from crawler import logger
 from crawler.config import DEFAULT_START_DATE
 from database.main import read_etl_sync_status
-#from crawler.worker import app
+from crawler.worker import app
+from database import SessionLocal
 
 _HARD_BASELINE = "2015-01-01"  # 當所有日期都錯誤時的最後防線
 
@@ -139,11 +140,10 @@ def _plan_from_sync(
         "anchor_value": last_str,
     }
 
-#@app.task()
+@app.task(name="crawler.tasks_plan.plan_price_fetch")
 def plan_price_fetch(
     etf_id: str,
     inception_date: Optional[str] = None,
-    session=None,   # "YYYY-MM-DD"
 ) -> Optional[Dict[str, str]]:
     """
     規劃『價格』抓取區間。
@@ -153,52 +153,52 @@ def plan_price_fetch(
       - None: 無需補資料 (start > end)
       - {"start": "YYYY-MM-DD", "price_count": "N"}
     """
-    rows: List[Dict[str, Any]] = read_etl_sync_status(etf_id=etf_id, session=session) or []
-    sync_row: Dict[str, Any] = (rows[0] if rows else {})
-    today = _today()
+    with SessionLocal() as session:
+        rows: List[Dict[str, Any]] = read_etl_sync_status(etf_id=etf_id, session=session) or []
+        sync_row: Dict[str, Any] = (rows[0] if rows else {})
+        today = _today()
 
-    try:
-        common = _plan_from_sync(
-            sync_row=sync_row,
-            inception_date=inception_date,
-            today=today,
-            anchor_field="last_price_date",
-            count_field="price_count",
-        )
-        start_d = _to_date(common["start"])
-        days_span = max(0, (_to_date(today.isoformat()) - start_d).days + 1)
+        try:
+            common = _plan_from_sync(
+                sync_row=sync_row,
+                inception_date=inception_date,
+                today=today,
+                anchor_field="last_price_date",
+                count_field="price_count",
+            )
+            start_d = _to_date(common["start"])
+            days_span = max(0, (_to_date(today.isoformat()) - start_d).days + 1)
 
-        payload = {
-            "etf_id": etf_id,
-            "fetch": "price",
-            "start": common["start"],
-            "end": today.isoformat(),
-            "days": days_span,                          # 涵蓋天數
-            "price_count": common["count"],
-            "last_price_date": common["anchor_value"],
-            "start_source": common["start_source"],       # 起始來源
-            "start_source_meta": common["start_source_meta"],     # 起始來源詳細資訊
-        }
-        payload_str = json.dumps(payload, indent=4, ensure_ascii=False)
-        logger.info("[PLAN][PRICE] %s → \n%s", etf_id, payload_str)
+            payload = {
+                "etf_id": etf_id,
+                "fetch": "price",
+                "start": common["start"],
+                "end": today.isoformat(),
+                "days": days_span,                          # 涵蓋天數
+                "price_count": common["count"],
+                "last_price_date": common["anchor_value"],
+                "start_source": common["start_source"],       # 起始來源
+                "start_source_meta": common["start_source_meta"],     # 起始來源詳細資訊
+            }
+            payload_str = json.dumps(payload, indent=4, ensure_ascii=False)
+            logger.info("[PLAN][PRICE] %s → \n%s", etf_id, payload_str)
 
-        return {
-            "start": common["start"],
-            "price_count": common["count"],
-        }
+            return {
+                "start": common["start"],
+                "price_count": common["count"],
+            }
 
-    except Exception as e:
-        logger.exception("[PLAN][PRICE] %s 產生規劃訊息時發生錯誤：%s", etf_id, e)
-        return {
-            "start": today.isoformat(),
-            "price_count": "0",
-        }
+        except Exception as e:
+            logger.exception("[PLAN][PRICE] %s 產生規劃訊息時發生錯誤：%s", etf_id, e)
+            return {
+                "start": today.isoformat(),
+                "price_count": "0",
+            }
 
-#@app.task()
+@app.task(name="crawler.tasks_plan.plan_dividend_fetch")
 def plan_dividend_fetch(
     etf_id: str,
     inception_date: Optional[str] = None,
-    session=None,   # "YYYY-MM-DD"
 ) -> Optional[Dict[str, str]]:
     """
     規劃『股利』抓取區間。
@@ -208,43 +208,44 @@ def plan_dividend_fetch(
       - None: 無需補資料 (start > end)
       - {"start": "YYYY-MM-DD", "dividend_count": "N"}
     """
-    rows: List[Dict[str, Any]] = read_etl_sync_status(etf_id=etf_id, session=session) or []
-    sync_row: Dict[str, Any] = (rows[0] if rows else {})
-    today = _today()
+    with SessionLocal() as session:
+        rows: List[Dict[str, Any]] = read_etl_sync_status(etf_id=etf_id, session=session) or []
+        sync_row: Dict[str, Any] = (rows[0] if rows else {})
+        today = _today()
 
-    try:
-        common = _plan_from_sync(
-            sync_row=sync_row,
-            inception_date=inception_date,
-            today=today,
-            anchor_field="last_dividend_ex_date",
-            count_field="dividend_count",
-        )
-        start_d = _to_date(common["start"])
-        days_span = max(0, (_to_date(today.isoformat()) - start_d).days + 1)
+        try:
+            common = _plan_from_sync(
+                sync_row=sync_row,
+                inception_date=inception_date,
+                today=today,
+                anchor_field="last_dividend_ex_date",
+                count_field="dividend_count",
+            )
+            start_d = _to_date(common["start"])
+            days_span = max(0, (_to_date(today.isoformat()) - start_d).days + 1)
 
-        payload = {
-            "etf_id": etf_id,
-            "fetch": "dividend",
-            "start": common["start"],
-            "end": today.isoformat(),
-            "days": days_span,                          # 涵蓋天數
-            "dividend_count": common["count"],
-            "last_dividend_ex_date": common["anchor_value"],
-            "start_source": common["start_source"],     # 起始來源
-            "start_source_meta": common["start_source_meta"],   # 起始來源詳細資訊
-        }
-        payload_str = json.dumps(payload, indent=4, ensure_ascii=False)
-        logger.info("[PLAN][DIV] %s → \n%s", etf_id, payload_str)
+            payload = {
+                "etf_id": etf_id,
+                "fetch": "dividend",
+                "start": common["start"],
+                "end": today.isoformat(),
+                "days": days_span,                          # 涵蓋天數
+                "dividend_count": common["count"],
+                "last_dividend_ex_date": common["anchor_value"],
+                "start_source": common["start_source"],     # 起始來源
+                "start_source_meta": common["start_source_meta"],   # 起始來源詳細資訊
+            }
+            payload_str = json.dumps(payload, indent=4, ensure_ascii=False)
+            logger.info("[PLAN][DIV] %s → \n%s", etf_id, payload_str)
 
-        return {
-            "start": common["start"],
-            "dividend_count": common["count"],
-        }
+            return {
+                "start": common["start"],
+                "dividend_count": common["count"],
+            }
 
-    except Exception as e:
-        logger.exception("[PLAN][DIV] %s 產生規劃訊息時發生錯誤：%s", etf_id, e)
-        return {
-            "start": today.isoformat(),
-            "dividend_count": "0",
-        }
+        except Exception as e:
+            logger.exception("[PLAN][DIV] %s 產生規劃訊息時發生錯誤：%s", etf_id, e)
+            return {
+                "start": today.isoformat(),
+                "dividend_count": "0",
+            }
