@@ -205,11 +205,6 @@ def main_tw() -> Dict[str, Any]:
                 }
                 per_etf[eid]["plan"]["price"] = plans[eid]["p"] or {}
                 per_etf[eid]["plan"]["dividend"] = plans[eid]["d"] or {}
-
-                current_last_price_date = None
-                current_price_count = int(plans[eid]["p"].get("price_count", 0)) if plans[eid]["p"] else 0
-                current_last_dividend_ex_date = None
-                current_dividend_count = int(plans[eid]["d"].get("dividend_count", 0)) if plans[eid]["d"] else 0
             
             # --- B.2 抓取 ---
             for eid in active_ids:
@@ -322,17 +317,19 @@ def main_tw() -> Dict[str, Any]:
         with SessionLocal.begin() as session:
             logger.info("===== 步驟 E：更新同步時間與日誌 =====")
 
-            updated_today_ids = []
+            # 修改後的判斷邏輯：檢查本次執行的「新增筆數」
+            updated_this_run_ids = []
             for eid in per_etf.keys():
-                last_tri_date = per_etf.get(eid, {}).get("tri", {}).get("last_tri_date")
-                if last_tri_date == today_str:
-                    updated_today_ids.append(eid)
+                # 取得任務回傳的新增筆數 (tri_added)
+                tri_added = per_etf.get(eid, {}).get("tri", {}).get("tri_added", 0)
+                if tri_added > 0:
+                    updated_this_run_ids.append(eid)
 
-            if updated_today_ids:
-                logger.info("【總結】今日有更新 TRI 資料的 ETF：共 %d 檔 → %s",
-                            len(updated_today_ids), updated_today_ids)
+            if updated_this_run_ids:
+                logger.info("【總結】本次執行有更新 TRI 資料的 ETF：共 %d 檔 → %s",
+                            len(updated_this_run_ids), updated_this_run_ids)
             else:
-                logger.info("【總結】今日無新的 TRI 更新資料。")
+                logger.info("【總結】本次執行中，所有 ETF 均無新的 TRI 資料需要更新。")
 
             try:
                 count = 0
