@@ -1,15 +1,22 @@
 # 📊 ETF 分析與回測平台（台股 + 美股）
 
-本專案是一套針對台股與美股 ETF 的 **自動化資料擷取、技術分析與回測模擬平台**。整合了 [Yahoo 台股 ETF](https://tw.stock.yahoo.com/tw-etf) 與 [Yahoo 美股 ETF](https://tw.stock.yahoo.com/) 上市標的，提供每日更新的歷史資料與策略評估，協助使用者了解長期投資的成效與風險。
+本專案是一套針對台股與美股 ETF 的 **自動化資料擷取、技術分析與回測模擬平台**。整合了 [Yahoo 台股 ETF](https://tw.stock.yahoo.com/tw-etf) 與 [tradingview 美股 ETF](https://tw.tradingview.com/markets/etfs/funds-usa/) 上市標的，提供每日更新的歷史資料與策略評估，協助使用者了解長期投資的成效與風險。
 
 ---
 
 ## 🎯 專案目標
 
-- 📈 回測「台股 vs 美股」ETF 長期投資表現
-- 📉 比較「定期定額 vs 一次投入」投資策略
-- 🔁 建立每日自動更新資料的系統
-- 🔍 提供技術指標與績效 API 查詢接口
+- 📊 **ETF 標的比較**
+  - 比較台股與美股 ETF 的長期投資績效與風險
+  - 協助使用者選擇適合投資的 ETF
+
+- 💰 **投資策略分析**
+  - 比較一次性投入與定期定額兩種投資方式
+  - 支援不同投資期間（如 1 年、3 年、10 年）
+
+- 🔁 **資料自動化與系統建置**
+  - 建立完整的 ETF 資料管線（價格、配息、TRI、回測）
+  - 透過 Airflow 排程 ETL，實現每日自動更新與監控
 
 ---
 
@@ -17,84 +24,70 @@
 
 ### 1️⃣ ETF 資料蒐集爬蟲
 
-### 📌 台股 ETF
+- 蒐集台股與美股 ETF 清單：
+  - 台股 ETF：來自 [Yahoo 台股 ETF 清單](https://tw.stock.yahoo.com/tw-etf)
+  - 美股 ETF：來自 [TradingView 美股 ETF 清單](https://tw.tradingview.com/markets/etfs/funds-usa/)
+- 使用 `yfinance` 擷取 2015-01-01 至今各 ETF 的歷史資料：
+  - 📈 **歷史價格資料**：
+    - 日期、開盤（Open）、收盤（Close）、最高價（High）、最低價（Low）
+    - 成交量（Volume）
+    - 調整後收盤價（Adj Close，考慮股利與拆分影響）
+  - 💰 **配息資料**：
+    - 除息日
+    - 每單位配息金額
 
-- 從 [Yahoo 台股 ETF 清單](https://tw.stock.yahoo.com/tw-etf) 擷取所有上市 ETF 編號
-- 使用 `yfinance` 擷取 2015-01-01 至今每檔 ETF 的歷史價格與配息資料：
-    - 📈 **歷史價格資料**：包含每日的開盤（Open）、收盤（Close）、最高價（High）、最低價（Low）、成交量（Volume）與調整後收盤價（Adj Close，考慮股利與除權息影響）
-    - 💰 **配息資料**：除息日、每單位配息金額
+### 2️⃣ 總報酬指數（TRI）計算模組
 
-### 📌 美股 ETF
-
-- 從 [TradingView 美股 ETF 清單](https://tw.tradingview.com/markets/etfs/funds-usa/) 擷取 ETF 股票代碼
-- 利用 `yfinance` 抓取 2015-05-01 至今有資料的 ETF 歷史價格（與台股ETF一致）：
-    - 📈 **歷史價格資料**：日期、開盤、收盤、最高、最低、成交量與調整後收盤價
-    - 💰 **配息資料**：除息日、每單位配息金額
-
-### 2️⃣ 技術指標計算模組（`pandas_ta`）
-
-使用 `pandas_ta` 套件計算常見技術分析指標，包括：
-
-- **RSI（相對強弱指標）**
-    - 使用 14 日 RSI 衡量漲跌動能
-    - 常見解讀：
-        - RSI > 70：過熱（可能賣出）
-        - RSI < 30：超賣（可能買入）
-- **MA（移動平均線）**
-    - 計算 5 日（MA5）與 20 日（MA20）均線
-    - 用於觀察趨勢與轉折點（如黃金交叉、死亡交叉）
-- **MACD（移動平均收斂背離指標）**
-    - 預設參數：12（快線 EMA）、26（慢線 EMA）、9（訊號線）
-    - 計算三項：
-        - `MACD_line`：快線
-        - `MACD_signal`：訊號線（慢線）
-        - `MACD_hist`：柱狀圖（快線 − 慢線）
-- **KD 隨機震盪指標**
-    - 根據最高價、最低價與收盤價計算：
-        - `%K`：快速指標
-        - `%D`：%K 的移動平均
-    - 解讀方式：
-        - KD > 80：過熱（可能賣出）
-        - KD < 20：超賣（可能買入）
+- 根據 ETF 的歷史價格與配息資料，計算 **總報酬指數（Total Return Index, TRI）**
+- TRI 用來反映「**價格變動 + 股利再投資**」後的實際投資報酬
+- 假設股利於 **除息日全數再投資**
+- 依市場資料特性採用不同計算方式：
+  - **美股 ETF**：使用 `Adj Close`（已內含股利與拆分調整）
+  - **台股 ETF**：使用 `Close` 價格，並於除息日將股利納入計算
+- TRI 作為後續回測與績效評估的**核心時間序列基礎**
 
 ### 3️⃣ 回測績效評估模組
 
-根據 ETF 的歷史股價，計算以下四項投資績效指標：
+根據 ETF 的 TRI 與歷史價格資料，計算以下投資績效指標：
 
-- 📊 **總報酬率（Total Return）**
-    - 公式：`(最終資產 ÷ 初始資產) − 1`
-    - 衡量整段投資期間的總體漲跌幅
-- 📈 **年化報酬率（CAGR）**
-    - 根據起訖日期換算為年，反映資產每年穩定增長的速度
-- 📉 **最大回撤（Max Drawdown）**
-    - 計算歷史最高點與最低點間的最大跌幅
-    - 評估資產可能面臨的最大風險
-- 📐 **夏普比率（Sharpe Ratio）**
-    - 衡量風險調整後的報酬率
-    - 公式：`年報酬率 ÷ 年化波動率`（假設無風險利率為 0）
+- 📈 **年化報酬率（CAGR）**
+  - 根據起訖日期換算為年
+  - 反映資產每年穩定成長的速度
 
-### 4️⃣ 策略模擬與比較
+- 📐 **夏普比率（Sharpe Ratio）**
+  - 衡量風險調整後的報酬表現
+  - 公式：`年化報酬率 ÷ 年化波動度`（假設無風險利率為 0）
 
-- 定期定額 vs 一次投入 vs 年投資
-- 配息再投資 vs 保留現金
-- 投資週期與金額可參數化查詢
+- 📉 **最大回撤（Max Drawdown）**
+  - 計算歷史最高點至最低點間的最大跌幅
+  - 評估投資期間可能承受的最大風險
+
+- 📊 **總報酬率（Total Return）**
+  - 公式：`(最終資產 ÷ 初始資產) − 1`
+  - 衡量整段投資期間的總體漲跌幅
+
+- 📐 **年化波動度（Annualized Volatility）**
+  - 以報酬率的標準差年化後計算
+  - 衡量資產價格波動程度，作為風險指標
 
 ---
 
-## 🏗 技術架構圖
+## 🏗 技術架構（簡化流程）
 
 ```
-ETF 編號（台/美）
+ETF 清單（台股 / 美股）
    ↓
-yfinance 擷取資料
+yfinance 擷取歷史價格與配息資料
    ↓
-技術指標計算（pandas_ta）
+資料寫入 MySQL（價格、配息原始資料）
    ↓
-回測績效分析
-   ↓               
-儲存至 MySQL
+TRI（總報酬指數）計算
    ↓
-FastAPI 讀取 MySQL → 對外提供 API / 給視覺化平台查詢   
+回測績效分析（CAGR、Max Drawdown、Volatility、Sharpe Ratio、Total Return）
+   ↓
+回測結果寫入 MySQL
+   ↓
+Streamlit 讀取 MySQL，提供互動式視覺化與查詢
 ```
 
 ---
@@ -103,10 +96,10 @@ FastAPI 讀取 MySQL → 對外提供 API / 給視覺化平台查詢
 
 | 模組 | 技術/工具 |
 | --- | --- |
-| 爬蟲 | `yfinance`, `requests`,  `selenium`(美股), `bs4`, `pandas` |
+| 爬蟲 | `yfinance`, `requests`, `bs4`, `pandas` |
 | 分析引擎 | `pandas_ta`, `pandas`, `numpy` |
 | 資料庫 | `MySQL` |
-| API 服務 | `FastAPI`, `Cloud Run (GCP)` |
+| API 服務 | `Cloud Run (GCP)` |
 | 排程系統 | `Airflow` |
 | 非同步任務 | `Celery`, `RabbitMQ`, `Docker Compose` |
 | 部署方式 | `Docker`, `Docker Hub`, `Pipenv`, `Pyenv` |
@@ -126,7 +119,7 @@ cd web_crawler_etf
 
 本專案採用 Pyenv 管理 Python 版本，並使用 Pipenv 管理虛擬環境與依賴套件。
 
-### 🐍 安裝指定 Python 版本（使用 Pyenv）
+#### 🐍 安裝指定 Python 版本（使用 Pyenv）
 
 使用 `pyenv` 安裝對應的 Python 版本（例如 3.8.10）並指定為本專案使用版本：
 
@@ -135,7 +128,7 @@ pyenv install 3.8.10
 pyenv local 3.8.10
 ```
 
-### 📦 建立 Pipenv 虛擬環境
+#### 📦 建立 Pipenv 虛擬環境
 
 使用 `pipenv` 建立與剛剛安裝的 Python 版本綁定的虛擬環境：
 
@@ -143,7 +136,7 @@ pyenv local 3.8.10
 pipenv --python ~/.pyenv/versions/3.8.10/bin/python
 ```
 
-### 🖥️ VS Code 整合 Pipenv 虛擬環境
+#### 🖥️ VS Code 整合 Pipenv 虛擬環境
 
 若 VS Code 無法自動辨識 `pipenv` 的虛擬環境，可手動設定：
 
@@ -242,208 +235,245 @@ docker rmi joycehsu65/web_crawler:0.0.1
 
 ---
 
-## 🧨 部署 RabbitMQ + Celery 任務系統
+## 🧨 部署 MySQL + RabbitMQ + Celery 任務系統
 
-### 1. 建立 Docker Network（僅需一次）
+### 建立與設定（僅需一次）
+
+1. 建立 Docker Network（僅需一次）
+
+    ```bash
+    docker network create etf_lib_network
+    ```
+
+    - docker network create {network 名稱}
+
+2. 建立 MySQL 的 Volume（僅需一次）
+
+    ```bash
+    docker volume create mysql
+    ```
+
+    - docker volume create {volume 名稱}
+
+3. 設定 `.env` 環境變數（僅需一次）
+
+    若尚未建立 `.env` 檔案，可執行下列指令產生：
+
+    ```bash
+    ENV=DOCKER python3 genenv.py
+
+### 啟動 MySQL、RabbitMQ
+
+1.  啟動 MySQL（Docker Compose）
+
+    ```bash
+    DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
+    ```
+
+    -  建立資料庫與與資料表（僅需一次）
+
+    ```bash
+    pipenv run python database/setup.py
+    ```
+
+2. 啟動 RabbitMQ 與 flower（Docker Compose）
+    
+    ```bash
+    docker compose -f rabbitmq-network.yml up -d
+    ```
+
+    - RabbitMQ 管理介面: [http://127.0.0.1:15672](http://127.0.0.1:15672)
+    - 預設帳號密碼: `worker / worker` (可於 `rabbitmq-network.yml` 中設定)
+
+3. 啟動 worker (Docker Compose)
+
+    ```bash
+    docker compose -f worker-network.yml up -d
+    ```
+
+    - Flower 提供 Celery 任務的監控介面: [http://127.0.0.1:5555](http://127.0.0.1:5555/)
+
+4. 啟動 producer
+
+    ```bash
+    docker compose -f producer-network.yml up -d
+    ```
+
+    - producer-network.yml 中可以設定多個 producer services
+
+
+### 日常啟動與停止
+
+- 啟動服務
+
+    ```bash
+    # 啟動 MySQL
+    docker compose -f mysql.yml start
+
+    # 啟動 RabbitMQ
+    docker compose -f rabbitmq-network.yml start
+
+- 停止服務
+
+    ```bash
+    # 關閉工人（Worker）
+    # 在 terminal 中按 Ctrl + C 中斷
+
+    # 停止 MySQL
+    docker compose -f mysql.yml stop
+
+    # 停止 RabbitMQ
+    docker compose -f rabbitmq-network.yml stop
+    ```
+
+### 檢查與除錯容器
+
+- 查看目前正在運行的 container：
+
+    ```bash
+    docker ps
+    ```
+
+- 查看容器日誌 log：
+
+    ```bash
+    # RabbitMQ
+    docker logs web-crawler-rabbitmq-1
+    
+    # MySQL
+    docker logs <mysql_container_name>
+    ```
+
+    > 📝 容器名稱可透過 `docker ps` 確認
+
+
+### 啟動工人（Worker）
+
+確認所有服務啟動後,執行以下指令啟動 Worker:
 
 ```bash
-docker network create etf_lib_network
-```
+# TW Worker
+pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q crawler_tw
 
-- docker network create {network 名稱}
-
-### 2. 建立 MySQL 的 Volume（僅需一次）
-
-```bash
-docker volume create mysql
-```
-
-- docker volume create {volume 名稱}
-
-### ⚙️ 3. 設定 `.env` 環境變數（僅需一次）
-
-若尚未建立 `.env` 檔案，可執行下列指令產生：
-
-```bash
-ENV=DOCKER python3 genenv.py
-```
-
-### 4. 啟動 MySQL（Docker Compose）
-
-```bash
-DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
-```
-
--  建立資料庫與與資料表（僅需一次）
-```bash
-pipenv run python database/setup.py
-```
-
-### 🐰 5. 啟動 RabbitMQ 與 flower（Docker Compose）
-
-```bash
-docker compose -f rabbitmq-network.yml up -d
-```
-
-- 啟動 RabbitMQ container 與其 Web 管理介面
-- 管理介面網址：[http://127.0.0.1:15672](http://127.0.0.1:15672/)
-- 預設帳號密碼可於 `rabbitmq-network.yml` 中設定（通常為 `worker / worker`）
-
-### 🔍 6. 檢查與除錯容器
-
-查看目前正在運行的 container：
-
-```bash
-docker ps
-```
-
-查看 RabbitMQ container log：
-
-```bash
-docker logs web-crawler-rabbitmq-1
-```
-
-> 📝 若 container 名稱不同，可用 docker ps 確認正確名稱。
-> 
-
-### 🛠️ 7. 啟動工人（Worker）
-
-啟動 Celery 工人來執行佇列任務：
-
-```bash
-pipenv run celery -A crawler.worker worker --loglevel=info
+# US Worker
+pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q crawler_us
 ```
 
 - `A crawler.worker`：指定 Celery app 的模組位置
 - `-loglevel=info`：顯示詳細任務處理紀錄
-
-### 👷‍♀️ 7.1. 啟動多個工人（多進程任務處理）
-
-你可以同時啟動多個工人，提高任務處理效率：
-
-```bash
-pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q tw
-pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q us
-```
-
-### 7.2 啟動 worker (Docker Compose)
-```bash
-docker compose -f worker-network.yml up -d
-```
-
-- worker-network.yml 中可以設定多個 worker services
+- `-Q`：指定不同的 queue
 
 
-### 🚀 8. 發送任務（Producer）
+### 發送任務（Producer）
 
-執行 `producer_main.py`，將任務加入 RabbitMQ 佇列：
+- 直接執行 Python 腳本
 
-```bash
-pipenv run python crawler/producer_main_tw.py
-pipenv run python crawler/producer_main_us.py
-```
+    ```bash
+    # 台股任務
+    pipenv run python crawler/producer_main_tw.py
 
-> 任務將預設加入名為 celery 的佇列。
+    # 美股任務
+    pipenv run python crawler/producer_main_us.py
+    ```
 
-### 8.1 啟動 producer (Docker Compose)
-```bash
-docker compose -f producer-network.yml up -d
-```
-
-- producer-network.yml 中可以設定多個 producer services
-
-### 🖥️ 9. Flower：監控任務狀態（Web UI）
-
-Flower 提供 Celery 任務的監控介面，可透過瀏覽器查看：
-[http://127.0.0.1:5555](http://127.0.0.1:5555/)
-
-
-### 🛑 10. 關閉工人（Worker）
-
-在 terminal 中啟動的工人，可透過 `Ctrl + C` 中斷停止。
-
-### ❌ 11. 關閉 RabbitMQ
-
-```bash
-docker compose -f rabbitmq-network.yml down
-```
-
-### ❌ 11. 關閉 container
-
-```bash
-docker compose -f {yml檔案} down
-```
-
-## 📁 資料表總覽
-
-| 資料表名稱 | 說明 |
-|------------|------|
-| `etfs` | ETF 主檔，包含 ETF 代碼、名稱、所屬地區與幣別 |
-| `etf_daily_prices` | 每日價格與技術指標（每一 ETF 每日一筆） |
-| `etf_backtest_results` | 每檔 ETF 的回測結果紀錄 |
-| `etf_dividend` | ETF 的歷史配息資料 |
+    > 需在任務檔案中分別不同的 queue。
 
 ---
 
-## 📘 `etfs` — ETF 基本資料表
+## 📁 資料表總覽（更新版本）
 
-| 欄位名稱 | 資料型別 | 說明 |
-|----------|-----------|------|
-| `etf_id` | `VARCHAR(20)` | 主鍵。ETF 代碼（如 `0050.TW`, `VOO`） |
-| `etf_name` | `VARCHAR(100)` | ETF 名稱 |
-| `region` | `VARCHAR(10)` | 所屬地區（如 `TW`, `US`） |
-| `currency` | `VARCHAR(10)` | 幣別（如 `TWD`, `USD`） |
-
----
-
-## 📗 `etf_daily_prices` — ETF 每日價格與技術指標表
-
-| 欄位名稱 | 資料型別 | 說明 |
-|----------|-----------|------|
-| `etf_id` | `VARCHAR(20)` | 主鍵之一，外鍵對應 `etfs.etf_id` |
-| `date` | `DATE` | 主鍵之一，價格所屬日期 |
-| `adj_close` | `DECIMAL(10,4)` | 調整後收盤價 |
-| `close` | `DECIMAL(10,4)` | 原始收盤價 |
-| `high` | `DECIMAL(10,4)` | 當日最高價 |
-| `low` | `DECIMAL(10,4)` | 當日最低價 |
-| `open` | `DECIMAL(10,4)` | 開盤價 |
-| `volume` | `BIGINT` | 當日成交量 |
-| `rsi` | `FLOAT` | RSI 技術指標 |
-| `ma5` | `FLOAT` | 5 日移動平均 |
-| `ma20` | `FLOAT` | 20 日移動平均 |
-| `macd_line` | `FLOAT` | MACD 主線（12 EMA - 26 EMA） |
-| `macd_signal` | `FLOAT` | MACD 訊號線（MACD 之 9 EMA） |
-| `macd_hist` | `FLOAT` | MACD 柱狀圖 |
-| `pct_k` | `FLOAT` | KD 指標 %K |
-| `pct_d` | `FLOAT` | KD 指標 %D |
-| `daily_return` | `DECIMAL(8,6)` | 當日報酬率 |
-| `cumulative_return` | `DECIMAL(10,6)` | 累積報酬指數（通常以 1 為基準） |
+| 資料表名稱 | 說明 | 更新策略 |
+|---|---|---|
+| **etfs** | ETF 基本資料（慢變資料），包含費用率、成立日與狀態。 | 覆蓋、重寫 |
+| **etf_daily_prices** | 每日價格與成交量資料（動態追加）。 | 新增，不更動舊資料 |
+| **etf_dividends** | 歷史配息事件與金額（動態追加）。 | 新增，不更動舊資料 |
+| **etf_tris** | 總報酬指數（TRI），用於計算含息資產曲線。 | 新增，不更動舊資料 |
+| **etf_backtests** | 回測成績單，紀錄 1Y、3Y、10Y 的績效指標。 | 覆蓋、重寫 |
+| **etl_sync_status** | ETL 同步狀態監控，紀錄各項資料的最後更新時間與筆數。 | 覆蓋、重寫 |
 
 ---
 
-## 📙 `etf_backtest_results` — ETF 回測結果表
+### 📘 `etfs` — ETF 基本資料表（慢變資料）
+
+> 註：建議每月定期檢查 `expense_ratio`（管理費）是否更改。
 
 | 欄位名稱 | 資料型別 | 說明 |
-|----------|-----------|------|
-| `etf_id` | `VARCHAR(20)` | 主鍵，外鍵對應 `etfs.etf_id` |
-| `backtest_start` | `DATE` | 回測起始日期 |
-| `backtest_end` | `DATE` | 回測結束日期 |
-| `total_return` | `DECIMAL(8,6)` | 總報酬率 |
-| `cagr` | `DECIMAL(8,6)` | 年化報酬率 |
-| `max_drawdown` | `DECIMAL(8,6)` | 最大回撤 |
-| `sharpe_ratio` | `DECIMAL(8,6)` | 夏普比率（報酬 / 波動） |
-
+|---|---|---|
+| `etf_id` | `VARCHAR(20)` | PK。ETF 代碼（如 `0050.TW`, `VOO`），作為各表關聯鍵。 |
+| `etf_name` | `VARCHAR(100)` | ETF 名稱，顯示於排行榜與搜尋清單。 |
+| `region` | `VARCHAR(10)` | 市場區域（如 `TW`, `US`），用於散點圖顏色標示。 |
+| `currency` | `VARCHAR(10)` | 交易幣別，用於回測計算與說明卡。 |
+| `expense_ratio` | `DECIMAL(6,4)` | 管理費（單位 %），顯示於排行榜費用率欄位。 |
+| `inception_date` | `DATE` | 成立日期，用於篩選「成立 ≥ N 年」的標的。 |
+| `status` | `ENUM` | 狀態：`ACTIVE`（交易中）或 `DELISTED`（已下市）。 |
 
 ---
 
-## 🟧 `etf_dividend` — ETF 配息歷史表
+### 📗 `etf_daily_prices` — ETF 每日價格表（動態追加）
 
 | 欄位名稱 | 資料型別 | 說明 |
-|----------|-----------|------|
-| `etf_id` | `VARCHAR(20)` | 主鍵之一，外鍵對應 `etfs.etf_id` |
-| `date` | `DATE` | 主鍵之一，配息發放日 |
-| `dividend_per_unit` | `DECIMAL(10,4)` | 每單位配息金額 |
-| `currency` | `VARCHAR(10)` | 配息幣別 |
+|---|---|---|
+| `etf_id` | `VARCHAR(20)` | PK / FK。對應 `etfs.etf_id`。 |
+| `trade_date` | `DATE` | PK。交易日期，作為更新資料時的比對依據。 |
+| `open` | `DECIMAL(18,6)` | 該日開盤價。 |
+| `high` | `DECIMAL(18,6)` | 該日最高價，建立技術指標或 TRI 的原始資料。 |
+| `low` | `DECIMAL(18,6)` | 該日最低價。 |
+| `close` | `DECIMAL(18,6)` | 該日收盤價，回測績效的基礎價。 |
+| `adj_close` | `DECIMAL(18,6)` | 調整後收盤價（含息 / 拆分），若數據已含息則直接計算 TRI。 |
+| `volume` | `BIGINT` | 當日成交量，用於篩選流動性較高的 ETF。 |
+
+---
+
+### 🟧 `etf_dividends` — ETF 配息歷史表（動態追加）
+
+| 欄位名稱 | 資料型別 | 說明 |
+|---|---|---|
+| `etf_id` | `VARCHAR(20)` | PK / FK。對應 `etfs.etf_id`。 |
+| `ex_date` | `DATE` | PK。除息日，計算含息報酬的生效日期。 |
+| `dividend_per_unit` | `DECIMAL(10,4)` | 每單位配發的現金股利金額，用於建立 TRI。 |
+| `currency` | `VARCHAR(10)` | 股利幣別，須與價格幣別對齊以便計算。 |
+
+---
+
+### 📈 `etf_tris` — 總報酬指數（Total Return Index）
+
+| 欄位名稱 | 資料型別 | 說明 |
+|---|---|---|
+| `etf_id` | `VARCHAR(20)` | PK / FK。對應 `etfs.etf_id`。 |
+| `tri_date` | `DATE` | PK。回測與績效統計的時間軸。 |
+| `tri` | `DECIMAL(20,8)` | 含息累積指數，用於計算 CAGR、最大回撤與資產曲線。 |
+| `currency` | `VARCHAR(10)` | 與輸入投資金額換算一致的幣別。 |
+
+---
+
+### 🏆 `etf_backtests` — 回測績效表（快取數據）
+
+| 欄位名稱 | 資料型別 | 說明 |
+|---|---|---|
+| `etf_id` | `VARCHAR(20)` | PK / FK。對應 `etfs.etf_id`。 |
+| `label` | `ENUM` | 回測年數標籤：`1y`、`3y`、`10y`。 |
+| `start_date` | `DATE` | PK。回測起始日期，用於散點圖選擇區間。 |
+| `end_date` | `DATE` | 回測結束日期。 |
+| `cagr` | `DECIMAL(8,6)` | 年化報酬率，排行榜與散點圖 Y 軸關鍵指標。 |
+| `sharpe_ratio` | `DECIMAL(8,6)` | 夏普比率，評估風險調整後的績效。 |
+| `max_drawdown` | `DECIMAL(8,6)` | 最大回撤，排行榜與散點圖 X 軸風險指標。 |
+| `total_return` | `DECIMAL(8,6)` | 總報酬率，投資總計績效。 |
+| `volatility` | `DECIMAL(8,6)` | 年化波動度，散點圖 X 軸風險指標。 |
+
+---
+
+### 🔄 `etl_sync_status` — ETL 同步狀態監控表
+
+| 欄位名稱 | 資料型別 | 說明 |
+|---|---|---|
+| `etf_id` | `VARCHAR(20)` | PK / FK。對應 `etfs.etf_id`。 |
+| `last_price_date` | `DATE` | 價格最後日期，用於增量抓取 `etf_daily_prices`。 |
+| `price_count` | `INT` | 價格資料總筆數。 |
+| `last_dividend_ex_date` | `DATE` | 除息最後日期，用於增量抓取 `etf_dividends`。 |
+| `dividend_count` | `INT` | 配息資料總筆數。 |
+| `last_tri_date` | `DATE` | TRI 最後日期，用於增量計算 TRI 資料。 |
+| `tri_count` | `INT` | TRI 資料總筆數。 |
+| `updated_at` | `DATETIME` | 該筆紀錄最後更新時間（日更監控）。 |
 
 ---
 
@@ -451,6 +481,8 @@ docker compose -f {yml檔案} down
 
 ```text
 etfs.etf_id
-  ├── etf_daily_prices.etf_id     (1:N 每日價格)
-  ├── etf_backtest_results.etf_id (1:N 回測結果)
-  └── etf_dividend.etf_id         (1:N 配息紀錄)
+  ├── `etf_daily_prices`.`etf_id`   (1:N 每日價格)
+  ├── `etf_dividends`.`etf_id`      (1:N 配息紀錄)
+  ├── `etf_tris`.`etf_id`           (1:N TRI 時間序列)
+  ├── `etf_backtests`.`etf_id`      (1:N 回測結果)
+  └── `etl_sync_status`.`etf_id`    (1:1 同步狀態 / 監控快照)
