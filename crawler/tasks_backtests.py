@@ -8,9 +8,10 @@ from typing import Dict, Iterable, Optional, List  # 用於型別提示，增加
 
 # --- 從專案其他模組匯入 ---
 from crawler.config import BACKTEST_WINDOWS_YEARS  # 匯入預設的回測年期設定，例如 [1, 3, 10]
-#from crawler.worker import app  # 匯入 Celery app，用於定義背景任務
+from crawler.worker import app  # 匯入 Celery app，用於定義背景任務
 from crawler import logger  # 匯入日誌記錄器
 from database.main import write_etf_backtest_results_to_db, read_tris_range  # 匯入資料庫讀寫函式
+from database import SessionLocal
 
 # --- 定義常數 ---
 DATE_FMT = "%Y-%m-%d"  # 定義統一的日期格式字串
@@ -133,7 +134,7 @@ def _compute_metrics_from_tri(
     }
 
 # ------------- 主流程：嚴格年窗回測 + 一次性寫入資料庫（UPSERT: etf_id+start_date）-------------
-#@app.task() # 將此函式定義為一個可以非同步執行的背景任務
+@app.task(name="crawler.tasks_backtests.backtest_windows_from_tri")
 def backtest_windows_from_tri(
     etf_id: str,
     end_date: str,
@@ -141,7 +142,6 @@ def backtest_windows_from_tri(
     *,
     risk_free_rate_annual: float = 0.0,
     annualization: int = 252,
-    session=None,
 ) -> Dict[str, object]:
     """
     對指定的 ETF 進行嚴格年窗回測。
@@ -150,121 +150,122 @@ def backtest_windows_from_tri(
     - 執行狀態和樣本數等資訊只寫入 log，不存入資料庫。
     回傳：一個包含執行結果摘要的字典。
     """
-    # 如果未提供 windows_years，則使用預設值
-    windows_years = list(windows_years or BACKTEST_WINDOWS_YEARS)
-    # 將結束日期字串轉換為 date 物件
-    end_dt: date = datetime.strptime(end_date, DATE_FMT).date()
+    with SessionLocal.begin() as session:
+        # 如果未提供 windows_years，則使用預設值
+        windows_years = list(windows_years or BACKTEST_WINDOWS_YEARS)
+        # 將結束日期字串轉換為 date 物件
+        end_dt: date = datetime.strptime(end_date, DATE_FMT).date()
 
-    # 初始化用於儲存結果的列表
-    rows: List[Dict] = []  # 準備寫入資料庫的每一筆紀錄
-    windows_done: List[str] = []  # 記錄成功完成的年期
-    windows_skipped: List[str] = []  # 記錄因資料不足而跳過的年期
+        # 初始化用於儲存結果的列表
+        rows: List[Dict] = []  # 準備寫入資料庫的每一筆紀錄
+        windows_done: List[str] = []  # 記錄成功完成的年期
+        windows_skipped: List[str] = []  # 記錄因資料不足而跳過的年期
 
-    # 一次只讀「最大年窗」所需的區間：end_dt - max_years  到  end_dt
-    max_year = max(windows_years) if windows_years else 0
-    # 給個緩衝，避免週末/國定假日（建議 14 天；7 天也可）
-    buffer_days = 14
-    earliest_needed_dt = end_dt - relativedelta(years=max_year) - relativedelta(days=buffer_days)
-    payload_all = read_tris_range(
-        etf_id,
-        start_date=earliest_needed_dt.strftime(DATE_FMT),
-        end_date=end_date,
-        session=session
-    )
-    tri_all = _records_to_tri_series(payload_all)
-    
-    # 如果完全沒有 TRI 資料，則記錄日誌並直接返回
-    if tri_all.empty:
-        logger.info("[BACKTEST][%s] end=%s 無任何 TRI 資料，全部跳過。", etf_id, end_date)
-        return {"etf_id": etf_id, "end_date": end_date, "inserted": 0, "windows_done": [], "windows_skipped": [f"{y}y" for y in windows_years]}
-
-    # 取得實際資料的第一天和最後一天
-    actual_first = tri_all.index[0].date()
-    actual_last = tri_all.index[-1].date()
-    
-    # 如果資料的最後一天早於指定的結束日期，則以實際資料的最後一天為準
-    if actual_last < end_dt:
-        logger.info("[BACKTEST][%s] end=%s 但資料最後日為 %s，仍以資料最後日為基準計算。", etf_id, end_date, actual_last.strftime(DATE_FMT))
-        end_dt = actual_last
-
-    # 遍歷所有要計算的回測年期（例如 1, 3, 10 年）
-    for y in windows_years:
-        label = f"{y}y"
-        target_start_dt = end_dt - relativedelta(years=y)
-
-        # 只先過濾到 end_dt 以內（保險）
-        s = tri_all[tri_all.index.date <= end_dt]
-        if s.empty:
-            windows_skipped.append(label)
-            logger.info("[BACKTEST][%s][%s] 視窗內無 TRI（<= end_dt），跳過。", etf_id, label)
-            continue
-
-        # 找到「目標起點日」當天或之前的最後一筆（避免週末/休市）
-        s_le = s[s.index.date <= target_start_dt]
-        if s_le.empty:
-            windows_skipped.append(label)
-            logger.info("[BACKTEST][%s][%s] 目標起點 %s 之前無資料，跳過。", etf_id, label, target_start_dt.strftime(DATE_FMT))
-            continue
-
-        start_idx = s_le.index[-1]          # e.g., 2015-10-23 (週五)
-        tri = s[s.index >= start_idx]       # 從這一筆開始到 end_dt
-
-        # 嚴格年窗判定：必須「至少」滿 y 年（用 calendar years 判）
-        win_start = tri.index[0].date()
-        if win_start + relativedelta(years=y) > end_dt:
-            windows_skipped.append(label)
-            logger.info("[BACKTEST][%s][%s] 嚴格年窗不足（start=%s → +%dy > end=%s），跳過。",
-                        etf_id, label, win_start.strftime(DATE_FMT), y, end_dt.strftime(DATE_FMT))
-            continue
-
-        # 呼叫函式，計算這段時間窗口的績效指標
-        metrics = _compute_metrics_from_tri(
-            tri,
-            risk_free_rate_annual=risk_free_rate_annual,
-            annualization=annualization,
-            use_calendar_years=True,
+        # 一次只讀「最大年窗」所需的區間：end_dt - max_years  到  end_dt
+        max_year = max(windows_years) if windows_years else 0
+        # 給個緩衝，避免週末/國定假日（建議 14 天；7 天也可）
+        buffer_days = 14
+        earliest_needed_dt = end_dt - relativedelta(years=max_year) - relativedelta(days=buffer_days)
+        payload_all = read_tris_range(
+            etf_id,
+            start_date=earliest_needed_dt.strftime(DATE_FMT),
+            end_date=end_date,
+            session=session
         )
+        tri_all = _records_to_tri_series(payload_all)
+        
+        # 如果完全沒有 TRI 資料，則記錄日誌並直接返回
+        if tri_all.empty:
+            logger.info("[BACKTEST][%s] end=%s 無任何 TRI 資料，全部跳過。", etf_id, end_date)
+            return {"etf_id": etf_id, "end_date": end_date, "inserted": 0, "windows_done": [], "windows_skipped": [f"{y}y" for y in windows_years]}
 
-        # 取得這個視窗實際的開始與結束日期
-        win_start = tri.index[0].date()
-        win_end = tri.index[-1].date()
+        # 取得實際資料的第一天和最後一天
+        actual_first = tri_all.index[0].date()
+        actual_last = tri_all.index[-1].date()
+        
+        # 如果資料的最後一天早於指定的結束日期，則以實際資料的最後一天為準
+        if actual_last < end_dt:
+            logger.info("[BACKTEST][%s] end=%s 但資料最後日為 %s，仍以資料最後日為基準計算。", etf_id, end_date, actual_last.strftime(DATE_FMT))
+            end_dt = actual_last
 
-        # 組合準備寫入資料庫的一筆紀錄
-        rows.append({
+        # 遍歷所有要計算的回測年期（例如 1, 3, 10 年）
+        for y in windows_years:
+            label = f"{y}y"
+            target_start_dt = end_dt - relativedelta(years=y)
+
+            # 只先過濾到 end_dt 以內（保險）
+            s = tri_all[tri_all.index.date <= end_dt]
+            if s.empty:
+                windows_skipped.append(label)
+                logger.info("[BACKTEST][%s][%s] 視窗內無 TRI（<= end_dt），跳過。", etf_id, label)
+                continue
+
+            # 找到「目標起點日」當天或之前的最後一筆（避免週末/休市）
+            s_le = s[s.index.date <= target_start_dt]
+            if s_le.empty:
+                windows_skipped.append(label)
+                logger.info("[BACKTEST][%s][%s] 目標起點 %s 之前無資料，跳過。", etf_id, label, target_start_dt.strftime(DATE_FMT))
+                continue
+
+            start_idx = s_le.index[-1]          # e.g., 2015-10-23 (週五)
+            tri = s[s.index >= start_idx]       # 從這一筆開始到 end_dt
+
+            # 嚴格年窗判定：必須「至少」滿 y 年（用 calendar years 判）
+            win_start = tri.index[0].date()
+            if win_start + relativedelta(years=y) > end_dt:
+                windows_skipped.append(label)
+                logger.info("[BACKTEST][%s][%s] 嚴格年窗不足（start=%s → +%dy > end=%s），跳過。",
+                            etf_id, label, win_start.strftime(DATE_FMT), y, end_dt.strftime(DATE_FMT))
+                continue
+
+            # 呼叫函式，計算這段時間窗口的績效指標
+            metrics = _compute_metrics_from_tri(
+                tri,
+                risk_free_rate_annual=risk_free_rate_annual,
+                annualization=annualization,
+                use_calendar_years=True,
+            )
+
+            # 取得這個視窗實際的開始與結束日期
+            win_start = tri.index[0].date()
+            win_end = tri.index[-1].date()
+
+            # 組合準備寫入資料庫的一筆紀錄
+            rows.append({
+                "etf_id": etf_id,
+                "label": label,  # 視窗標籤，例如 "3y"
+                "start_date": win_start.strftime(DATE_FMT),  # ✅ 主鍵之一
+                "end_date": win_end.strftime(DATE_FMT),      # 僅為參考資訊
+                "total_return": metrics["total_return"],
+                "cagr": metrics["cagr"],
+                "volatility": metrics["volatility"],
+                "sharpe_ratio": metrics["sharpe_ratio"],
+                "max_drawdown": metrics["max_drawdown"],
+            })
+            windows_done.append(label)
+
+            # 記錄詳細的計算結果日誌
+            logger.info("[BACKTEST][%s][%s] start=%s end=%s  TR=%.6f  CAGR=%.6f  VOL=%.6f  SR=%.6f  MDD=%.6f",
+                        etf_id, label,
+                        win_start.strftime(DATE_FMT), win_end.strftime(DATE_FMT),
+                        metrics["total_return"], metrics["cagr"], metrics["volatility"],
+                        metrics["sharpe_ratio"] if pd.notna(metrics["sharpe_ratio"]) else float('nan'),
+                        metrics["max_drawdown"])
+
+        # 寫入 DB 後
+        inserted = 0
+        if rows:
+            df_out = pd.DataFrame(rows).sort_values(["start_date"])
+            write_etf_backtest_results_to_db(df_out, session=session)
+            inserted = len(df_out)
+
+        logger.info("[BACKTEST][%s] end=%s 已寫入 %d 筆；完成: %s；跳過: %s",
+                    etf_id, end_date, inserted, windows_done, windows_skipped)
+
+        return {
             "etf_id": etf_id,
-            "label": label,  # 視窗標籤，例如 "3y"
-            "start_date": win_start.strftime(DATE_FMT),  # ✅ 主鍵之一
-            "end_date": win_end.strftime(DATE_FMT),      # 僅為參考資訊
-            "total_return": metrics["total_return"],
-            "cagr": metrics["cagr"],
-            "volatility": metrics["volatility"],
-            "sharpe_ratio": metrics["sharpe_ratio"],
-            "max_drawdown": metrics["max_drawdown"],
-        })
-        windows_done.append(label)
-
-        # 記錄詳細的計算結果日誌
-        logger.info("[BACKTEST][%s][%s] start=%s end=%s  TR=%.6f  CAGR=%.6f  VOL=%.6f  SR=%.6f  MDD=%.6f",
-                      etf_id, label,
-                      win_start.strftime(DATE_FMT), win_end.strftime(DATE_FMT),
-                      metrics["total_return"], metrics["cagr"], metrics["volatility"],
-                      metrics["sharpe_ratio"] if pd.notna(metrics["sharpe_ratio"]) else float('nan'),
-                      metrics["max_drawdown"])
-
-    # 寫入 DB 後
-    inserted = 0
-    if rows:
-        df_out = pd.DataFrame(rows).sort_values(["start_date"])
-        write_etf_backtest_results_to_db(df_out, session=session)
-        inserted = len(df_out)
-
-    logger.info("[BACKTEST][%s] end=%s 已寫入 %d 筆；完成: %s；跳過: %s",
-                etf_id, end_date, inserted, windows_done, windows_skipped)
-
-    return {
-        "etf_id": etf_id,
-        "end_date": end_date,
-        "written": inserted,              # ★ 主程式讀這個
-        "windows_done": windows_done,     # ★ 主程式讀這個
-        "windows_skipped": windows_skipped,
-    }
+            "end_date": end_date,
+            "written": inserted,              # ★ 主程式讀這個
+            "windows_done": windows_done,     # ★ 主程式讀這個
+            "windows_skipped": windows_skipped,
+        }
