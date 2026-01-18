@@ -205,10 +205,14 @@ pipenv run python crawler/producer_main_us.py
 ### 打包 Image
 
 ```bash
-docker build -f Dockerfile -t joycehsu65/web_crawler:0.0.1 .
+# TW image
+docker build -f Dockerfile -t winston07291/web_crawler_tw:0.0.1 .
+
+# US image
+docker build -f Dockerfile -t winston07291/web_crawler_us:0.0.1 .
 ```
 
-- ⚠️ 這裡的`joycehsu65`要換成自己的 Docker name
+- ⚠️ 這裡的`winston07291`要換成自己的 Docker name
 - docker build -f Dockerfile -t {docker hub 名稱}/{image 名稱}:{版本號} .
 
 ### 檢查建立的image
@@ -220,15 +224,33 @@ docker images
 ### 上傳 Image 到 docker hub
 
 ```bash
-docker push joycehsu65/web_crawler:0.0.1
+# TW image
+docker push winston07291/web_crawler_tw:0.0.1
+
+# US image
+docker push winston07291/web_crawler_us:0.0.1
 ```
 
 - docker push {docker hub 名稱}/{image 名稱}:{版本號}
 
-### 刪除 docker image
+### 更改 yaml 檔的 image 名稱
+
+開啟`worker-network.yml`與`producer-network.yml`檔案，將 image 改成輸出的 docker 名稱與版本號。
+
+範例：
+我輸出的是`joycehsu65/web_crawler_tw:0.1.2`，
+從台股 services 中的`image: winston07291/web_crawler_tw:${DOCKER_IMAGE_VERSION}`，
+改成`image: joycehsu65/web_crawler_tw:0.1.2`。
+美股 services 也需同步更改。
+
+### 刪除 docker image (要刪除時再執行即可)
 
 ```bash
-docker rmi joycehsu65/web_crawler:0.0.1
+# TW image
+docker rmi winston07291/web_crawler_tw:0.0.1
+
+# US image
+docker rmi winston07291/web_crawler_us:0.0.1
 ```
 
 - docker rmi {docker hub 名稱}/{image 名稱}:{版本號}
@@ -276,7 +298,7 @@ docker rmi joycehsu65/web_crawler:0.0.1
     pipenv run python database/setup.py
     ```
 
-2. 啟動 RabbitMQ 與 flower（Docker Compose）
+2. 啟動 RabbitMQ（Docker Compose）
     
     ```bash
     docker compose -f rabbitmq-network.yml up -d
@@ -291,6 +313,7 @@ docker rmi joycehsu65/web_crawler:0.0.1
     docker compose -f worker-network.yml up -d
     ```
 
+    - 執行前請先確認是否有將 `worker-network.yml`檔中的 image 改成您推 docker 上的名稱與版本號
     - Flower 提供 Celery 任務的監控介面: [http://127.0.0.1:5555](http://127.0.0.1:5555/)
 
 4. 啟動 producer
@@ -298,32 +321,37 @@ docker rmi joycehsu65/web_crawler:0.0.1
     ```bash
     docker compose -f producer-network.yml up -d
     ```
-
+    - 執行前請先確認是否有將 `producer-network.yml`檔中的 image 改成您推 docker 上的名稱與版本號
     - producer-network.yml 中可以設定多個 producer services
 
+### 停止並移除所有容器與網路
 
-### 日常啟動與停止
+1. 關閉工人（Worker）
 
-- 啟動服務
+    在 terminal 中按 Ctrl + C 中斷
 
-    ```bash
-    # 啟動 MySQL
-    docker compose -f mysql.yml start
-
-    # 啟動 RabbitMQ
-    docker compose -f rabbitmq-network.yml start
-
-- 停止服務
+2. 停止並移除 producer
 
     ```bash
-    # 關閉工人（Worker）
-    # 在 terminal 中按 Ctrl + C 中斷
+    docker compose -f producer-network.yml down
+    ```
 
-    # 停止 MySQL
-    docker compose -f mysql.yml stop
+3. 停止並移除 worker
 
-    # 停止 RabbitMQ
-    docker compose -f rabbitmq-network.yml stop
+    ```bash
+    docker compose -f worker-network.yml down
+    ```
+
+4. 停止並移除 RabbitMQ
+
+    ```bash
+    docker compose -f rabbitmq-network.yml down
+    ```
+
+5. 停止並移除 MySQL
+
+    ```bash
+    docker compose -f mysql.yml down
     ```
 
 ### 檢查與除錯容器
@@ -366,17 +394,17 @@ pipenv run celery -A crawler.worker worker --loglevel=info --hostname=%h -Q craw
 
 ### 發送任務（Producer）
 
-- 直接執行 Python 腳本
+直接執行 Python 腳本
 
-    ```bash
-    # 台股任務
-    pipenv run python crawler/producer_main_tw.py
+```bash
+# 台股任務
+pipenv run python crawler/producer_main_tw.py
 
-    # 美股任務
-    pipenv run python crawler/producer_main_us.py
-    ```
+# 美股任務
+pipenv run python crawler/producer_main_us.py
+```
 
-    > 需在任務檔案中分別不同的 queue。
+> 需在任務檔案中分別不同的 queue。
 
 ---
 
