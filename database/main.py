@@ -73,7 +73,7 @@ def _upsert_records_to_db(
     insert_stmt = insert(table)
     update_stmt = insert_stmt.on_duplicate_key_update(
         {
-            col.name: insert_stmt.inserted[col.name]
+            col.name: text(f"VALUES({col.name})") # 強制使用傳統語法
             for col in table.columns
             if col.name not in primary_keys
         }

@@ -42,6 +42,8 @@ def _records_to_tri_series(payload) -> pd.Series:
         return pd.Series(dtype=float)
 
     df = pd.DataFrame.from_records(recs)
+    df['tri_date'] = pd.to_datetime(df['tri_date'])
+    df = df.groupby('tri_date')['tri'].last().reset_index()
 
     # 日期欄位標準化
     if "tri_date" not in df.columns and "date" in df.columns:
@@ -56,8 +58,7 @@ def _records_to_tri_series(payload) -> pd.Series:
     if "tri" not in df.columns:
         return pd.Series(dtype=float)
 
-    s = pd.Series(df["tri"].astype(float).values,
-                  index=pd.to_datetime(df["tri_date"]))
+    s = pd.Series(df["tri"].astype(float).values, index=df["tri_date"])
     return s.sort_index()
 
 

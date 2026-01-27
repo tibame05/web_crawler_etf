@@ -35,6 +35,17 @@ def _normalize_records(payload: Any, key: Optional[str] = None) -> List[Dict[str
             return payload["records"]
     return []
 
+def _get_latest_tri_from_db(etf_id: str, session) -> Optional[float]:
+    """[輔助函式] 從資料庫中獲取該 ETF 目前最後一筆 TRI 數值"""
+    from sqlalchemy import text
+    sql = text("""
+        SELECT tri FROM etf_total_return_index 
+        WHERE etf_id = :etf_id 
+        ORDER BY tri_date DESC LIMIT 1
+    """)
+    result = session.execute(sql, {"etf_id": etf_id}).fetchone()
+    return float(result[0]) if result else None
+
 def _df_prices(payload)->pd.DataFrame:
     """[輔助函式] 把價格資料轉成 DataFrame，正規欄位名/型別、排序去重。"""
     recs = _normalize_records(payload)  # ← 統一解包
@@ -148,36 +159,40 @@ def build_tri(etf_id: str, region: str, base: float = TRI_BASE) -> Dict:
 
         sync_last_tri_date = sync_row.get("last_tri_date") if sync_row else None
         prev_tri_count = int(sync_row.get("tri_count") or 0)
-        start = sync_last_tri_date or DEFAULT_START_DATE
+        if sync_last_tri_date:
+            # 轉成 date 物件後往前推 5 天（避開週末）
+            start_dt = pd.to_datetime(sync_last_tri_date) - pd.Timedelta(days=5)
+            start = start_dt.strftime(DATE_FMT)
+        else:
+            start = DEFAULT_START_DATE
 
         # 2) 取得種子 TRI（若同日沒有就抓 <= 該日的最後一筆；都沒有則用 base）
         seed_tri = base
-        seed_date = pd.to_datetime(sync_last_tri_date) if sync_last_tri_date else None
+        seed_date = None
 
-        if seed_date is not None:
-            # 有紀錄就抓「<= seed_date」的最後一筆作為種子（函式只支援 start_date/end_date）
-            tri_rows = _normalize_records(
-                read_tris_range(etf_id=etf_id, start_date=None, end_date=seed_date.strftime(DATE_FMT), session=session)
+        # 我們不限制 start_date，只限制 end_date 為「今天」，並由 read_tris_range 抓出所有資料
+        # 因為 read_tris_range 內部有 ORDER BY tri_date ASC，所以最後一筆就是最新的
+        existing_tris = _normalize_records(
+            read_tris_range(
+                etf_id=etf_id, 
+                start_date="2015-01-01",  
+                end_date=today, 
+                session=session
             )
-            if tri_rows:
-                last = tri_rows[-1]  # 假設 read_tris_range 預設是升冪
-                seed_date = pd.to_datetime(last.get("tri_date") or last.get("date"))
-                seed_tri = float(last.get("tri") or last.get("value") or base)
-        else:
-            # 無紀錄：抓所有 TRI 的最後一筆當作種子（如果曾經算過）
-            tri_rows_all = _normalize_records(
-                read_tris_range(etf_id=etf_id, start_date=None, end_date=None, session=session)
-            )
-            if tri_rows_all:
-                last = tri_rows_all[-1]
-                seed_date = pd.to_datetime(last.get("tri_date") or last.get("date"))
-                seed_tri = float(last.get("tri") or last.get("value") or base)
+        )
 
-        # ★ Debug：種子資訊
-        if seed_date is not None:
-            logger.info("[TRI][DBG] %s 種子 TRI：date=%s tri=%.6f", etf_id, seed_date.strftime(DATE_FMT), seed_tri)
+        if existing_tris:
+            # 取最後一筆作為種子
+            last_rec = existing_tris[-1]
+            seed_date = pd.to_datetime(last_rec["tri_date"])
+            seed_tri = float(last_rec["tri"]) if last_rec["tri"] is not None else base
+            logger.info("[TRI][FIX] 成功利用 read_tris_range 銜接種子: %s, TRI=%.6f", 
+                        last_rec["tri_date"], seed_tri)
         else:
-            logger.info("[TRI][DBG] %s 無既有 TRI 種子，將以 base=%.6f 開始。", etf_id, base)
+            # 若資料庫完全沒資料，才使用傳入的基階 (通常是 1000)
+            seed_tri = base
+            seed_date = None
+            logger.info("[TRI][FIX] 資料庫無既有紀錄，將以基底 %.2f 開始計算", base)
 
         # 3) 抓資料（價格必抓；TW 才抓股利）
         df_prices = _df_prices(read_prices_range(etf_id, start_date=start, end_date=today, session=session))
