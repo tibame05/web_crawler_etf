@@ -32,11 +32,11 @@ def fetch_us_etf_list(crawler_url: str = "https://tw.tradingview.com/markets/etf
 
         etf_records = []
         # 解析表格數據
-        rows = soup.find_all("span", {"class": "tickerCell-GrtoTeat"})
+        rows = soup.find_all("span", {"class": "tickerCell-ixuo49jq"})
 
         for row in rows:
-            code_tag = row.find("a", {"class": "tickerNameBox-GrtoTeat"})
-            name_tag = row.find("a", {"class": "tickerDescription-GrtoTeat"})
+            code_tag = row.find("a", {"class": "tickerNameBox-ixuo49jq"})
+            name_tag = row.find("a", {"class": "tickerDescription-ixuo49jq"})
             
             etf_id_text = code_tag.get_text(strip=True) if code_tag else None
             etf_name_text = name_tag.get_text(strip=True) if name_tag else None
