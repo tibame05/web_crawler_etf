@@ -291,7 +291,7 @@ docker rmi winston07291/web_crawler_us:0.0.1
     ```bash
     DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
     ```
-    - RabbitMQ 管理介面: [http://127.0.0.1:8000](http://127.0.0.1:8000)（或是8080）
+    - MySQL 管理介面: [http://127.0.0.1:8000](http://127.0.0.1:8000)（或是8080）
     - 預設帳號密碼: `root / test` (可於 `mysql.yml` 中設定)
 
     -  建立資料庫與與資料表（僅需一次）
