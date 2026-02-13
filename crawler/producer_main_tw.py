@@ -19,13 +19,13 @@ from database import SessionLocal
 # --- 原始爬蟲／計算任務 ---
 from crawler.rpc_tasks import (
     rpc_fetch_tw_etf_list,
-    rpc_align_step0,
-    rpc_plan_price_fetch,
-    rpc_plan_dividend_fetch,
-    rpc_async_fetch_daily_prices,
-    rpc_async_fetch_dividends,
-    rpc_async_build_tri,
-    rpc_async_backtest_windows
+    rpc_align_step0_tw,
+    rpc_plan_price_fetch_tw,
+    rpc_plan_dividend_fetch_tw,
+    rpc_async_fetch_daily_prices_tw,
+    rpc_async_fetch_dividends_tw,
+    rpc_async_build_tri_tw,
+    rpc_async_backtest_windows_tw
 )
 from crawler.sync_service import (
     merge_update_sync_status, 
@@ -59,13 +59,10 @@ def main_tw() -> Dict[str, Any]:
             logger.info("===== 步驟 A：同步 ETF 名單開始 =====")
             
             # 使用 RPC 封裝
-            src_rows = rpc_fetch_tw_etf_list(
-                crawler_url="https://tw.stock.yahoo.com/tw-etf", 
-                region=REGION_TW
-            )
+            src_rows = rpc_fetch_tw_etf_list(crawler_url="https://tw.stock.yahoo.com/tw-etf")
             logger.info("步驟 A.1：自 Yahoo 股市成功爬取 %d 筆原始 ETF 名單。", len(src_rows))
 
-            etfs_data_list = rpc_align_step0(REGION_TW, src_rows)
+            etfs_data_list = rpc_align_step0_tw(src_rows)
 
             id2info = {d['etf_id']: d for d in etfs_data_list}
             active_ids = sorted(set(id2info.keys()))
@@ -109,8 +106,8 @@ def main_tw() -> Dict[str, Any]:
 
                 logger.info("[%s] 步驟 B.1：規劃價格 (Price) 與股利 (Dividend) 資料抓取區間...", eid)
                 plans[eid] = {
-                    "p": rpc_plan_price_fetch(eid, inception_date),
-                    "d": rpc_plan_dividend_fetch(eid, inception_date)
+                    "p": rpc_plan_price_fetch_tw(eid, inception_date),
+                    "d": rpc_plan_dividend_fetch_tw(eid, inception_date)
                 }
                 per_etf[eid]["plan"]["price"] = plans[eid]["p"] or {}
                 per_etf[eid]["plan"]["dividend"] = plans[eid]["d"] or {}
@@ -119,12 +116,12 @@ def main_tw() -> Dict[str, Any]:
                 if plans[eid]["p"]:
                     plan_p = {"start": plans[eid]["p"]["start"]}
                     logger.info("[%s] 步驟 B.2.1：執行價格資料抓取 (計畫=%s)...", eid, plan_p)
-                    price_jobs[eid] = rpc_async_fetch_daily_prices(eid, plans[eid]["p"])
+                    price_jobs[eid] = rpc_async_fetch_daily_prices_tw(eid, plans[eid]["p"])
                 
                 if plans[eid]["d"]:
                     plan_d = {"start": plans[eid]["d"]["start"]}
                     logger.info("[%s] 步驟 B.2.2：執行股利資料抓取 (計畫=%s)...", eid, plan_d)
-                    div_jobs[eid] = rpc_async_fetch_dividends(eid, plans[eid]["d"], REGION_TW)
+                    div_jobs[eid] = rpc_async_fetch_dividends_tw(eid, plans[eid]["d"])
 
             # C+D：處理
             logger.info("===== 步驟 C+D：1.收集價格股利結果與執行計算 =====")
@@ -149,7 +146,7 @@ def main_tw() -> Dict[str, Any]:
                         }, session=session)
 
                     if new_records_p > 0:
-                        tri_jobs[eid] = rpc_async_build_tri(eid, REGION_TW)
+                        tri_jobs[eid] = rpc_async_build_tri_tw(eid)
                     else:
                         logger.info(f"[{eid}] B 無新增價格，跳過 C 與 D。")
 
@@ -173,7 +170,7 @@ def main_tw() -> Dict[str, Any]:
                     logger.info(f"[{eid}] TRI 計算完成，新增 {tri_added} 筆，最新日期 {tri_res.get('last_tri_date')}.")
                     
                     if tri_added > 0:
-                        bt_jobs[eid] = rpc_async_backtest_windows(eid, tri_res.get("last_tri_date"), BACKTEST_WINDOWS_YEARS)
+                        bt_jobs[eid] = rpc_async_backtest_windows_tw(eid, tri_res.get("last_tri_date"), BACKTEST_WINDOWS_YEARS)
                     else:
                         logger.info(f"[{eid}] TRI 無新增資料，跳過回測。")
 
