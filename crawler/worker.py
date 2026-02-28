@@ -18,12 +18,15 @@ app = Celery(
         "crawler.tasks_fetch",
         "crawler.tasks_tri",
         "crawler.tasks_backtests",
+        "crawler.workflow_templates",
+        "crawler.producer_main_tw", 
+        "crawler.producer_main_us",
     ],
     # 連線到 rabbitmq,
     # pyamqp://user:password@127.0.0.1:5672/
     # 帳號密碼都是 worker
     broker=f"pyamqp://{WORKER_ACCOUNT}:{WORKER_PASSWORD}@{RABBITMQ_HOST}:{RABBITMQ_PORT}/",
-    backend="rpc://"
+    backend="redis://localhost:6379/0" # 因要有 chord 幫我做步驟間的「等待」
 )
 
 app.conf.update(
