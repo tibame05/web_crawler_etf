@@ -1,5 +1,6 @@
 # crawler/tasks_etf_list_tw.py
 import requests
+import os
 from bs4 import BeautifulSoup
 from typing import List
 
@@ -41,50 +42,51 @@ def fetch_tw_etf_list(crawler_url: str = "https://tw.stock.yahoo.com/tw-etf", re
     回傳:
       list of dict，可直接給 align_step0 使用。
     """
+    try:
+        user_agent = os.environ["USER_AGENT"]
+    except KeyError:
+        logger.error("❌ 找不到環境變數 USER_AGENT。請檢查 .env 檔案是否正確設定。")
+        raise  # 重新拋出例外，確保程式停止    headers = {"User-Agent": user_agent}
+
+    headers = {"User-Agent": user_agent}
+
     with SessionLocal.begin() as session:
         logger.info("開始爬取台灣 ETF 名單...")
+        try:
+            response = requests.get(crawler_url, headers=headers, timeout=10)
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"連線失敗: {e}")
+            return []
 
-        response = requests.get(crawler_url)
         soup = BeautifulSoup(response.text, "html.parser")
-
         etf_records = []
-        etf_card_divs = soup.find_all("div", {"class": "Bdbc($bd-primary-divider)"})
 
-        for etf_card in etf_card_divs:
-            etf_name_div = etf_card.find("div", {"class": "Lh(20px)"})
-            etf_id_span = etf_card.find("span", {"class": "Fz(14px)"})
+        # 改用 CSS Selector 定位所有列表項目
+        items = soup.select('li.List\(n\)')
 
-            etf_name_text = etf_name_div.text.strip() if etf_name_div else None
-            etf_id_text = etf_id_span.text.strip() if etf_id_span else None
+        for item in items:
+            name_div = item.select_one('div.Lh\(20px\)')
+            id_span = item.select_one('span.Fz\(14px\)')
 
-            # --- 驗證與格式化 etf_id ---
-            if not etf_id_text:
-                continue
-        
-            etf_id_text = str(etf_id_text).upper().strip()
+            if name_div and id_span:
+                # 取得名稱並去掉代號部分的文字 (如果有的話)
+                etf_name_text = name_div.get_text(strip=True).replace(id_span.get_text(strip=True), "").strip()
+                etf_id_text = id_span.get_text(strip=True)
 
-            # 確認尾綴必須是 ".TW" 或 ".TWO"
-            if not (etf_id_text.endswith(".TW") or etf_id_text.endswith(".TWO")):
-                logger.warning("忽略不符合格式的 ETF 代號: %s", etf_id_text)
-                continue
+                # --- 驗證與格式化 etf_id ---
+                etf_id_text = etf_id_text.upper()
+                if not (etf_id_text.endswith(".TW") or etf_id_text.endswith(".TWO")):
+                    continue
 
-            # 前綴為數字與英文字母組合，例如 0050、00715B
-            prefix = etf_id_text.rsplit(".", 1)[0]
-            if not prefix.isalnum():  # 前綴必須是數字或字母
-                logger.warning("忽略前綴不是數字和字母的 ETF 代號: %s", etf_id_text)
-                continue
+                currency = _get_currency_from_region(region, etf_id_text)
+                etf_records.append({
+                    "etf_id": etf_id_text,
+                    "etf_name": etf_name_text,
+                    "region": region,
+                    "currency": currency,
+                })
 
-            # --- 判斷 region 與 currency ---
-            currency = _get_currency_from_region(region, etf_id_text)
-
-            etf_records.append({
-                "etf_id": etf_id_text,
-                "etf_name": etf_name_text,
-                "region": region,
-                "currency": currency,
-            })
-
-        # --- 直接用 list of dict 寫入 DB ---
         if etf_records:
             try:
                 for r in etf_records:
@@ -94,9 +96,9 @@ def fetch_tw_etf_list(crawler_url: str = "https://tw.stock.yahoo.com/tw-etf", re
                 write_etfs_to_db(etf_records, session=session)
                 logger.info("✅ 台股 ETF 已寫入資料庫（共 %d 筆）", len(etf_records))
             except Exception as e:
-                logger.exception("❌ 台股 ETF 寫入資料庫失敗: %s", e)
+                logger.exception("❌ 台股 ETF 寫入資料庫失敗: %s", e)        
         else:
-            logger.warning("⚠️ 未取得任何合法的台股 ETF 記錄")
+            logger.warning("⚠️ 未取得任何合法的台股 ETF 記錄。請檢查 Headers 或 Class 名稱。")
 
-        # --- 回傳 list of dict ---
         return etf_records
+    

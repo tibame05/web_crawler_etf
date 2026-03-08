@@ -238,10 +238,10 @@ docker push winston07291/web_crawler_us:0.0.1
 開啟`worker-network.yml`與`producer-network.yml`檔案，將 image 改成輸出的 docker 名稱與版本號。
 
 範例：
-我輸出的是`joycehsu65/web_crawler_tw:0.1.2`，
-從台股 services 中的`image: winston07291/web_crawler_tw:${DOCKER_IMAGE_VERSION}`，
-改成`image: joycehsu65/web_crawler_tw:0.1.2`。
-美股 services 也需同步更改。
+  我輸出的是`joycehsu65/web_crawler_tw:0.1.2`，
+  從台股 services 中的`image: winston07291/web_crawler_tw:${DOCKER_IMAGE_VERSION}`，
+  改成`image: joycehsu65/web_crawler_tw:0.1.2`。
+  美股 services 也需同步更改。
 
 ### 刪除 docker image (要刪除時再執行即可)
 
@@ -291,6 +291,8 @@ docker rmi winston07291/web_crawler_us:0.0.1
     ```bash
     DOCKER_IMAGE_VERSION=0.0.3.arm64 docker compose -f mysql.yml up -d
     ```
+    - MySQL 管理介面: [http://127.0.0.1:8000](http://127.0.0.1:8000)（或是8080）
+    - 預設帳號密碼: `root / test` (可於 `mysql.yml` 中設定)
 
     -  建立資料庫與與資料表（僅需一次）
 

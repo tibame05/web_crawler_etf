@@ -33,13 +33,19 @@ def _plan_from_sync(
     count_field: str,      # ex: "price_count" / "dividend_count"
 ) -> Dict[str, Any]:
     """
-    通用規劃邏輯（價格/股利皆用；永遠回傳 dict）。
-    起始來源（繁中，五擇一）：
-      1) "sync表last_date有資料但錯誤：sync中的last_date >= today"
-      2) "sync表last_date有資料：start為last_date + 1"
-      3) "sync表無資料但日期錯誤：使用硬基礎日_HARD_BASELINE"
-      4) "sync表無資料，且成立日較大：使用成立日inception_date"
-      5) "sync表無資料，且預設起始日較大：使用預設起始日DEFAULT_START_DATE"
+    通用規劃邏輯：判斷資料抓取的起始日期 (Start Date)。
+    
+    決策優先級與情境：
+    一、 已有同步紀錄 (Anchor exists)：
+        1. [紀錄異常] 若 last_date >= 今天 -> 從「今天」開始補 (anchor_ge_today)。
+        2. [正常續抓] 若 last_date < 今天  -> 從「上次截止日 + 1天」開始補 (next_day_lt_today, next_day_ge_today)。
+
+    二、 無同步紀錄但日期錯誤 (Date error)：
+        3. [回退基準] 成立日或預設日格式錯誤、或是未來日期 -> 強制回退至「2015-01-01」 (date_error)。
+
+    三、 無同步紀錄且日期正常 (First sync)：
+        4. [使用成立日] 若 成立日 > 2015-01-01 -> 從「成立日」開始抓 (inception_date)。
+        5. [使用預設日] 若 成立日 <= 2015-01-01 -> 從「2015-01-01」開始抓 (DEFAULT_START_DATE)。
     """
     # 取 anchor（同步表中的最後日期）
     last_str = sync_row.get(anchor_field)
@@ -75,7 +81,7 @@ def _plan_from_sync(
         if anchor >= today:
             # 1) 同步表記錄錯誤/過新：直接 today
             start = today
-            start_source = "sync表記錄錯誤last_date：sync中的last_date >= today"
+            start_source = "[紀錄異常] 上次日期晚於今天，強制從今天開始補"
             meta["reason"] = "anchor_ge_today"
         else:
             # 2) 正常：last_date + 1（但不超過 today）
@@ -86,7 +92,7 @@ def _plan_from_sync(
             else:
                 start = next_day
                 meta["reason"] = "next_day_lt_today"
-            start_source = "sync表last_date有資料：start為last_date + 1"
+            start_source = "[正常續抓] 從上次截止日的隔天開始補資料"
     else:
         # 無 anchor
         # 1) 先檢查「錯誤/未來」→ 情境三
@@ -102,7 +108,7 @@ def _plan_from_sync(
 
         if case3:
             start = min(_to_date(_HARD_BASELINE), today)
-            start_source = "sync表無資料但日期錯誤：使用硬基礎日_HARD_BASELINE"
+            start_source = "[回退基準] 參數日期格式錯誤或在未來，退回 2015 基準日"
             meta["reason"] = "+".join(reasons) or "date_error"
             meta["hard_baseline"] = _HARD_BASELINE
 
@@ -120,15 +126,15 @@ def _plan_from_sync(
             if lower_bound > today:
                 # 理論上不會發生（應該被 case3 擋住），保險起見再回退
                 start = _to_date(_HARD_BASELINE)
-                start_source = "sync表無資料但日期錯誤：使用硬基礎日_HARD_BASELINE"
+                start_source = "[回退基準] 參數日期格式錯誤或在未來，退回 2015 基準日"
                 meta["notes"].append("lower_bound_gt_today_but_rerouted_to_case3")
                 meta["hard_baseline"] = _HARD_BASELINE
             else:
                 start = lower_bound
                 start_source = (
-                    "sync表無資料：使用成立日inception_date"
+                    "[首次抓取使用成立日] 無歷史紀錄，從 ETF 成立日開始抓取"
                     if lb_src == "inception_date"
-                    else "sync表無資料：使用預設起始日DEFAULT_START_DATE"
+                    else "[首次抓取使用預設日] 無歷史紀錄，從系統預設起始日 (2015) 開始抓取"
                 )
 
 
