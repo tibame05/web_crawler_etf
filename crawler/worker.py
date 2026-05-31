@@ -5,6 +5,8 @@ from crawler.config import (
     RABBITMQ_PORT,
     WORKER_ACCOUNT,
     WORKER_PASSWORD,
+    REDIS_HOST,
+    REDIS_PORT,
 )
 
 app = Celery(
@@ -13,20 +15,21 @@ app = Celery(
     include=[
         "crawler.tasks_etf_list_tw",
         "crawler.tasks_etf_list_us",
-        "crawler.tasks_align", 
+        "crawler.tasks_align",
         "crawler.tasks_plan",
         "crawler.tasks_fetch",
         "crawler.tasks_tri",
         "crawler.tasks_backtests",
         "crawler.workflow_templates",
-        "crawler.producer_main_tw", 
+        "crawler.producer_main_tw",
         "crawler.producer_main_us",
     ],
     # 連線到 rabbitmq,
     # pyamqp://user:password@127.0.0.1:5672/
     # 帳號密碼都是 worker
     broker=f"pyamqp://{WORKER_ACCOUNT}:{WORKER_PASSWORD}@{RABBITMQ_HOST}:{RABBITMQ_PORT}/",
-    backend="redis://localhost:6379/0" # 因要有 chord 幫我做步驟間的「等待」
+    # backend="redis://localhost:6379/0" # 因要有 chord 幫我做步驟間的「等待」
+    backend=f"redis://{REDIS_HOST}:{REDIS_PORT}/0",
 )
 
 app.conf.update(

@@ -11,6 +11,8 @@ RABBITMQ_HOST = os.environ.get("RABBITMQ_HOST", "rabbitmq")
 RABBITMQ_PORT = os.environ.get("RABBITMQ_PORT", 5672)
 WORKER_ACCOUNT = os.environ.get("WORKER_ACCOUNT", "worker")
 WORKER_PASSWORD = os.environ.get("WORKER_PASSWORD", "worker")
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = os.environ.get("REDIS_PORT", 6379)
 
 """
 crawler.config
